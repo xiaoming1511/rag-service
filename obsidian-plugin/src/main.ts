@@ -164,14 +164,15 @@ export default class RAGServicePlugin extends Plugin {
     this.busy = true;
     try {
       const res = await this.api.refreshIndex();
-      if (!quiet) {
-        const parts = [
-          `新增 ${res.added}`,
-          `更新 ${res.updated}`,
-          `删除 ${res.removed}`,
-          `未变 ${res.unchanged}`,
-        ].join(" · ");
-        new Notice(`♻️ 增量索引完成: ${parts}`, 4000);
+      const parts = [
+        `新增 ${res.added}`,
+        `更新 ${res.updated}`,
+        `删除 ${res.removed}`,
+        `未变 ${res.unchanged}`,
+      ].join(" · ");
+      // 手动触发（quiet=false）或开启"自动索引完成提示"时弹出通知
+      if (!quiet || this.settings.autoIndexNotify) {
+        new Notice(`♻️ 增量索引完成: ${parts}`, 2500);
       }
       this.statusBarItem.setText("RAG: ✅ 已同步");
     } catch (err) {

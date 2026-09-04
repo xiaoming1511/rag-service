@@ -173,6 +173,7 @@ export class ChatView extends ItemView {
 
   private addMessage(role: "user" | "assistant", content: string): HTMLElement {
     const wrap = this.messagesEl.createDiv({ cls: `rag-msg rag-msg-${role}` });
+    const avatar = wrap.createDiv({ cls: "rag-avatar", text: role === "user" ? "🧑" : "🤖" });
     const bubble = wrap.createDiv({ cls: "rag-msg-bubble" });
 
     if (role === "user") {
@@ -187,6 +188,7 @@ export class ChatView extends ItemView {
         this
       );
     }
+    void avatar;
     this.messagesEl.scrollTo({ top: this.messagesEl.scrollHeight, behavior: "smooth" });
     return bubble;
   }
@@ -242,7 +244,10 @@ export class ChatView extends ItemView {
       void this.plugin.api.appendMessage(this.activeSessionId, "user", question);
     }
 
-    const assistantBubble = this.addMessage("assistant", "…");
+    const assistantBubble = this.addMessage("assistant", "");
+    // 打字动画
+    const typingEl = assistantBubble.createDiv({ cls: "rag-typing" });
+    typingEl.createEl("i"); typingEl.createEl("i"); typingEl.createEl("i");
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 120000);

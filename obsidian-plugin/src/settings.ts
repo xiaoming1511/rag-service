@@ -13,6 +13,8 @@ export interface RAGSettings {
   useRerank: boolean;
   /** 保存笔记时自动触发增量索引 */
   autoIndexOnSave: boolean;
+  /** 自动索引完成后弹出提示 */
+  autoIndexNotify: boolean;
   /** 定时兜底增量索引间隔（秒；0 表示关闭定时） */
   autoIndexIntervalSec: number;
 }
@@ -23,6 +25,7 @@ export const DEFAULT_SETTINGS: RAGSettings = {
   topK: 3,
   useRerank: true,
   autoIndexOnSave: true,
+  autoIndexNotify: true,
   autoIndexIntervalSec: 0,
 };
 
@@ -110,6 +113,16 @@ export class RAGSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
             this.plugin.rebindAutoIndex();
           })
+      );
+
+    new Setting(containerEl)
+      .setName("自动索引完成提示")
+      .setDesc("文档变更触发增量索引完成后，右下角弹出同步结果")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.autoIndexNotify).onChange(async (value) => {
+          this.plugin.settings.autoIndexNotify = value;
+          await this.plugin.saveSettings();
+        })
       );
 
     new Setting(containerEl)

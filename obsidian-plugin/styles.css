@@ -1,5 +1,6 @@
 /* ================================================================
- * RAG Service 插件样式
+ * RAG Service 插件样式（参考 LLM Wiki 排版：卡片化、清晰层级、主题变量）
+ * 全部使用 Obsidian CSS 变量，自动适配浅色/深色主题
  * ================================================================ */
 
 /* ---- 聊天视图整体 ---- */
@@ -7,121 +8,286 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  background: var(--background-primary);
 }
 
-/* ---- 消息区 ---- */
+/* ===================== 会话栏 ===================== */
+.rag-session-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.rag-session-select {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: var(--radius-s, 6px);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.rag-session-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: var(--radius-s, 6px);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  cursor: pointer;
+}
+
+.rag-session-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.rag-session-del {
+  color: var(--text-error, #e5534b);
+}
+
+/* ===================== 消息区 ===================== */
 .rag-chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 12px;
+  padding: 14px 14px 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .rag-chat-placeholder {
   margin: auto;
   text-align: center;
   color: var(--text-muted);
-  opacity: 0.6;
+  opacity: 0.55;
   white-space: pre-line;
   font-size: 14px;
 }
 
-/* ---- 消息气泡 ---- */
+/* ---- 消息行：带头像 ---- */
 .rag-msg {
   display: flex;
+  gap: 10px;
+  align-items: flex-start;
 }
 
 .rag-msg-user {
-  justify-content: flex-end;
+  flex-direction: row-reverse;
 }
 
-.rag-msg-assistant {
-  justify-content: flex-start;
+.rag-avatar {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
 }
 
+.rag-msg-user .rag-avatar {
+  background: var(--interactive-accent);
+  color: #fff;
+}
+
+/* ---- 气泡（LLM Wiki 式卡片） ---- */
 .rag-msg-bubble {
-  max-width: 92%;
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-size: 13px;
-  line-height: 1.6;
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: var(--radius-m, 12px);
+  font-size: 13.5px;
+  line-height: 1.7;
   word-break: break-word;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .rag-msg-user .rag-msg-bubble {
   background: var(--interactive-accent);
   color: #fff;
+  border-top-right-radius: 4px;
 }
 
 .rag-msg-assistant .rag-msg-bubble {
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
+  border-top-left-radius: 4px;
 }
 
-.rag-msg-bubble p {
-  margin: 4px 0;
+/* 气泡内 Markdown */
+.rag-msg-bubble p { margin: 5px 0; }
+.rag-msg-bubble h1, .rag-msg-bubble h2, .rag-msg-bubble h3, .rag-msg-bubble h4 {
+  font-size: 1.05em; margin: 8px 0 4px; line-height: 1.4;
 }
-
-/* ---- 来源引用 ---- */
-.rag-sources {
-  margin-top: 6px;
-  padding: 8px 12px;
+.rag-msg-bubble ul, .rag-msg-bubble ol { padding-left: 20px; margin: 4px 0; }
+.rag-msg-bubble li { margin: 2px 0; }
+.rag-msg-bubble code {
+  background: var(--background-modifier-hover);
+  padding: 1px 6px; border-radius: 4px; font-size: 12.5px;
+  font-family: var(--font-monospace);
+}
+.rag-msg-bubble pre {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  padding: 10px 12px; border-radius: 8px; overflow-x: auto;
+  font-size: 12.5px;
+}
+.rag-msg-bubble blockquote {
+  margin: 6px 0; padding: 4px 12px;
   border-left: 3px solid var(--interactive-accent);
-  background: var(--background-secondary);
-  border-radius: 6px;
-  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ===================== 来源卡片 ===================== */
+.rag-sources {
+  margin-top: 8px;
+  max-width: 88%;
+  margin-left: 38px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .rag-sources-title {
+  font-size: 12px;
   font-weight: 600;
-  margin-bottom: 6px;
-  color: var(--text-normal);
+  color: var(--text-muted);
+  margin-bottom: 2px;
 }
 
 .rag-source {
-  padding: 2px 0;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: var(--radius-s, 8px);
+  padding: 8px 12px;
+  font-size: 12.5px;
+  transition: background 0.15s;
+}
+
+.rag-source:hover {
+  background: var(--background-modifier-hover);
 }
 
 .rag-source-link {
-  cursor: pointer;
+  font-weight: 600;
   color: var(--text-accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.rag-source-link:hover {
   text-decoration: underline;
+}
+
+.rag-source-score {
+  float: right;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--background-primary);
 }
 
 .rag-source-heading {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 11.5px;
+  margin-top: 3px;
 }
 
-.rag-source-score {
-  color: var(--text-muted);
+.rag-source-img {
+  margin-top: 4px;
+  font-size: 12px;
 }
 
-/* ---- 输入区 ---- */
+.rag-source-img a {
+  color: var(--color-blue, #6b9bff);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.rag-source-img a:hover { text-decoration: underline; }
+
+/* ===================== 思考中动画 ===================== */
+.rag-typing {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.rag-typing i {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: rag-blink 1.2s infinite both;
+}
+
+.rag-typing i:nth-child(2) { animation-delay: 0.2s; }
+.rag-typing i:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes rag-blink {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* ===================== 输入区 ===================== */
 .rag-chat-input-area {
   display: flex;
-  gap: 6px;
-  padding: 8px;
+  gap: 8px;
+  padding: 10px 14px;
   border-top: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  align-items: flex-end;
 }
 
 .rag-chat-input {
   flex: 1;
   resize: none;
-  min-height: 40px;
-  font-size: 13px;
+  min-height: 42px;
+  max-height: 180px;
+  font-size: 13.5px;
+  padding: 8px 12px;
+  border-radius: var(--radius-m, 12px);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  outline: none;
+}
+
+.rag-chat-input:focus {
+  border-color: var(--interactive-accent);
 }
 
 .rag-chat-send {
   align-self: flex-end;
+  height: 42px;
+  min-width: 64px;
+  border-radius: var(--radius-m, 12px);
+  background: var(--interactive-accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
 }
+
+.rag-chat-send:hover { filter: brightness(1.08); }
+.rag-chat-send:disabled { opacity: 0.5; cursor: default; }
 
 /* ---- 状态栏 ---- */
 .rag-status {
   cursor: pointer;
   font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--background-modifier-hover);
 }
 
 .rag-setting-tip {
