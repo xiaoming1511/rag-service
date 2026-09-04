@@ -13,6 +13,9 @@ export interface SourceInfo {
   score: number;
   file_path?: string;
   heading?: string;
+  line_start?: number;   // 行级引文：命中片段起始行
+  line_end?: number;     // 行级引文：命中片段结束行
+  images?: { path: string; caption: string; source_file?: string }[]; // 多模态附件
 }
 
 export interface QueryResult {
@@ -94,6 +97,39 @@ export class RAGApiClient {
   /** 更新服务端配置（POST /v1/config，热生效 + 写回配置文件） */
   async saveServerConfig(patch: Record<string, any>): Promise<any> {
     return this.postJson("/config", patch);
+  }
+
+  // ================================================================
+  //  会话管理（/v1/sessions）
+  // ================================================================
+
+  async listSessions(): Promise<{ sessions: any[] }> {
+    const resp = await fetch(this.url("/sessions"), { headers: { Authorization: `Bearer ${this.apiKey}` } });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return resp.json();
+  }
+
+  async createSession(title?: string): Promise<any> {
+    return this.postJson("/sessions", { title: title ?? "" });
+  }
+
+  async getSession(id: string): Promise<any> {
+    const resp = await fetch(this.url(`/sessions/${id}`), { headers: { Authorization: `Bearer ${this.apiKey}` } });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return resp.json();
+  }
+
+  async appendMessage(id: string, role: string, content: string): Promise<any> {
+    return this.postJson(`/sessions/${id}/messages`, { role, content });
+  }
+
+  async deleteSession(id: string): Promise<any> {
+    const resp = await fetch(this.url(`/sessions/${id}`), {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return resp.json();
   }
 
   /**

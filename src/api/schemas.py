@@ -15,12 +15,15 @@ class QueryRequest(BaseModel):
 
 
 class SourceInfo(BaseModel):
-    """来源信息（file_path/heading 供 Obsidian 插件点击跳转使用，向后兼容保留）"""
+    """来源信息（file_path/heading/行号/图片 供 Obsidian 插件跳转与高亮）"""
     file_name: str
     content: str
     score: float
-    file_path: Optional[str] = None  # 文件绝对路径（插件据此换算 vault 相对路径）
-    heading: Optional[str] = None    # 标题路径锚点（如 "基础语法 > 变量"）
+    file_path: Optional[str] = None    # 文件绝对路径（插件据此换算 vault 相对路径）
+    heading: Optional[str] = None      # 标题路径锚点（如 "基础语法 > 变量"）
+    line_start: Optional[int] = None   # 命中片段在原文中的起始行（1 起，行级引文）
+    line_end: Optional[int] = None     # 命中片段在原文中的结束行
+    images: Optional[List[Dict[str, Any]]] = None  # 附件图片 [{path, caption}]（多模态）
 
 
 class QueryResponse(BaseModel):
@@ -102,6 +105,7 @@ class ResearchRequest(BaseModel):
     """深度研究请求"""
     question: str
     sub_queries: Optional[List[str]] = None
+    max_rounds: Optional[int] = None  # 递归最大轮次（默认 2）
 
 
 class ResearchResponse(BaseModel):

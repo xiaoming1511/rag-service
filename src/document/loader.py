@@ -40,6 +40,7 @@ class DocumentLoader:
             source_dirs: List[str],
             extensions: Optional[List[str]] = None,
             parsers: Optional[List[Parser]] = None,
+            attachment_dir: Optional[str] = None,
     ):
         """
         初始化加载器
@@ -47,9 +48,13 @@ class DocumentLoader:
         Args:
             source_dirs: 源目录列表
             extensions: 支持的扩展名列表；None 表示使用全部可用解析器的扩展名
-            parsers: 自定义解析器列表；None 使用默认解析器（md/txt/pdf/docx/html）
+            parsers: 自定义解析器列表；None 使用默认解析器（md/txt/pdf/docx/html/epub/pptx）
+            attachment_dir: 提取图片的附件目录（多模态）；默认 data/attachments
         """
         self.source_dirs = [Path(d).expanduser().resolve() for d in source_dirs]
+
+        # 附件目录（多模态：从 PDF/DOCX/PPTX 提取的内嵌图片落盘于此）
+        self.attachment_dir = Path(attachment_dir or "./data/attachments").expanduser().resolve()
 
         # 构建扩展名 → 解析器 注册表
         parser_list = parsers if parsers is not None else DEFAULT_PARSERS
@@ -213,6 +218,9 @@ class DocumentLoader:
         if not content:
             return None
 
+        # 生成文档 ID（附件目录等需要）
+        doc_id = self._generate_id(str(file_path))
+
         # 构建元数据
         metadata = {
             'file_path': str(file_path),
@@ -226,8 +234,9 @@ class DocumentLoader:
             metadata['title'] = parsed.title
         metadata.update(parsed.metadata)
 
-        # 生成文档 ID
-        doc_id = self._generate_id(str(file_path))
+        # 多模态：保存提取的内嵌图片到附件目录，并记录到元数据
+        if parsed.images:
+            metadata['images'] = self._save_images(parsed.images, doc_id, file_path.name)
 
         return Document(
             id=doc_id,
@@ -236,6 +245,39 @@ class DocumentLoader:
             content=content,
             metadata=metadata,
         )
+
+    def _save_images(self, images: List[Dict[str, Any]], doc_id: str, file_name: str) -> List[Dict[str, Any]]:
+        """
+        把解析器提取的图片字节落盘到附件目录（多模态：上下文字幕方案）
+
+        Args:
+            images: 解析器返回的图片列表 [{caption, bytes, ext}]
+            doc_id: 文档 ID（用作附件子目录）
+            file_name: 文档文件名（用于说明）
+
+        Returns:
+            List[Dict]: [{path, caption}]；单张失败跳过
+        """
+        saved = []
+        if not images:
+            return saved
+        dest_dir = self.attachment_dir / doc_id
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for i, img in enumerate(images, 1):
+            try:
+                ext = (img.get("ext") or "png").lower().strip(".")
+                if ext not in ("png", "jpg", "jpeg", "gif", "webp"):
+                    ext = "png"
+                path = dest_dir / f"img_{i}.{ext}"
+                path.write_bytes(img["bytes"])
+                saved.append({
+                    "path": str(path),
+                    "caption": img.get("caption", ""),
+                    "source_file": file_name,
+                })
+            except Exception as e:
+                print(f"⚠️ 附件图片保存失败: {e}")
+        return saved
 
     @staticmethod
     def _generate_id(file_path: str) -> str:

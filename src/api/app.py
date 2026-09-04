@@ -5,7 +5,7 @@ FastAPI 应用主入口
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import query, index, status, research, config
+from src.api.routes import query, index, status, research, config, sessions, archive
 
 
 def create_app(pipeline=None) -> FastAPI:
@@ -34,6 +34,8 @@ def create_app(pipeline=None) -> FastAPI:
         status.set_pipeline(pipeline)
         research.set_pipeline(pipeline)
         config.set_pipeline(pipeline)
+        sessions.set_pipeline(pipeline)
+        archive.set_pipeline(pipeline)
 
     # 注册路由
     app.include_router(query.router)
@@ -41,5 +43,7 @@ def create_app(pipeline=None) -> FastAPI:
     app.include_router(status.router)
     app.include_router(research.router)
     app.include_router(config.router)
+    app.include_router(sessions.router)
+    app.include_router(archive.router)
 
     return app

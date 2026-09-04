@@ -139,6 +139,9 @@ class RAGPipeline:
                     "file_name": r.metadata.get("file_name", "unknown"),
                     "file_path": r.metadata.get("file_path", ""),
                     "heading": r.metadata.get("heading_path", ""),
+                    "line_start": r.metadata.get("start_line") or None,
+                    "line_end": r.metadata.get("end_line") or None,
+                    "images": r.metadata.get("images") or None,
                     "content": r.content[:200] + "..." if len(r.content) > 200 else r.content,
                     "score": r.score,
                 }
@@ -194,6 +197,9 @@ class RAGPipeline:
                     "file_name": r.metadata.get("file_name", "unknown"),
                     "file_path": r.metadata.get("file_path", ""),
                     "heading": r.metadata.get("heading_path", ""),
+                    "line_start": r.metadata.get("start_line") or None,
+                    "line_end": r.metadata.get("end_line") or None,
+                    "images": r.metadata.get("images") or None,
                     "content": r.content,
                     "score": r.score,
                 })
@@ -268,6 +274,9 @@ class RAGPipeline:
                     "file_name": r.metadata.get("file_name", "unknown"),
                     "file_path": r.metadata.get("file_path", ""),
                     "heading": r.metadata.get("heading_path", ""),
+                    "line_start": r.metadata.get("start_line") or None,
+                    "line_end": r.metadata.get("end_line") or None,
+                    "images": r.metadata.get("images") or None,
                     "content": r.content,
                     "score": r.score,
                 })
@@ -368,20 +377,22 @@ class RAGPipeline:
             self,
             question: str,
             sub_queries: Optional[List[str]] = None,
+            max_rounds: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Deep Research 简版：子查询 → 并行检索 → 汇总报告
+        Deep Research（递归多轮：最大轮次 + 新信息增益停止）
 
         Args:
             question: 研究问题
             sub_queries: 自定义子查询列表（None 则用 LLM 生成）
+            max_rounds: 本轮最大轮次（默认 2）
 
         Returns:
-            Dict: report / sub_queries / sources / total_results
+            Dict: report / sub_queries / sources / total_results / rounds
         """
         from src.pipeline.deep_research import DeepResearch
         dr = DeepResearch(retriever=self.retriever, generator=self.generator)
-        return dr.research(question, sub_queries)
+        return dr.research(question, sub_queries, max_rounds)
 
     # ================================================================
     # 状态统计

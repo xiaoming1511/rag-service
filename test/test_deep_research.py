@@ -65,7 +65,7 @@ def test_deep_research_full_flow():
     """完整流程：LLM 拆解 → 并行检索 → 合并去重 → 汇总报告"""
     generator = _StubGenerator()
     retriever = _StubRetriever()
-    dr = DeepResearch(retriever=retriever, generator=generator, sub_query_count=3)
+    dr = DeepResearch(retriever=retriever, generator=generator, sub_query_count=3, max_rounds=1)  # 单轮
 
     result = dr.research("量子计算是什么？")
 
@@ -85,7 +85,7 @@ def test_deep_research_custom_sub_queries():
     """自定义子查询：不调用 LLM 拆解"""
     generator = _StubGenerator()
     retriever = _StubRetriever()
-    dr = DeepResearch(retriever=retriever, generator=generator)
+    dr = DeepResearch(retriever=retriever, generator=generator, max_rounds=1)  # 单轮
 
     result = dr.research("量子计算是什么？", sub_queries=["定义", "原理"])
     assert result["sub_queries"] == ["定义", "原理"]

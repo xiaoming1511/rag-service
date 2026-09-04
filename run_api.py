@@ -157,6 +157,11 @@ def main():
     ingest_queue = IngestQueue(run_fn=run_index_job, store_path="./data/index_jobs.json")
     pipeline.ingest_queue = ingest_queue
 
+    # 会话管理（服务端持久化）
+    from src.session.store import ConversationStore
+
+    pipeline.conversation_store = ConversationStore(dir_path="./data/conversations")
+
     def on_vault_change():
         """文件变化回调：增量同步（xu/wiki 由外部 LLM Wiki 管理，本系统不处理）"""
         index_sync.sync()

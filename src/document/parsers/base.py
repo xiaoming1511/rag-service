@@ -16,6 +16,8 @@ class ParsedContent:
     content: str  # 提取出的纯文本内容
     title: Optional[str] = None  # 文档标题（有则提取，无则 None）
     metadata: Dict[str, Any] = field(default_factory=dict)  # 额外元数据
+    images: List[Dict[str, Any]] = field(default_factory=list)
+    # 内嵌图片（多模态）：[{caption: 周边文本说明, bytes: 原始字节, ext: 扩展名(png/jpg/...)}]
 
 
 class Parser(ABC):

@@ -27,6 +27,8 @@
 > **冗余删除（2026-09-04，用户逐项确认）**：① Web 聊天页（web/ 移除，根路径重定向 /docs，查询统一走 Obsidian 插件）② CLI（cli/ 移除，无人依赖）③ 知识图谱数据层（/v1/graph 路由 + graph.json 生成逻辑移除；wiki-builder 保留页面生成与互链，图谱展示交给 Obsidian Graph View）。测试 **90 项**。
 >
 > **第三期（2026-09-04）**：① 移除 AI 知识层生成 wiki-builder（模块/端点/自动串联/周期维护；**xu/wiki 交由外部 LLM Wiki 管理，本系统不处理该目录**，loader 继续排除 wiki）② 新增配置管理 GET/POST `/v1/config`（校验→写回 settings.yaml→热生效；检索/生成/沉淀/缓存/路由字段即时生效）③ **模型路由**：chat / rewrite / research_subqueries 三任务可分别配置模型（ModelRouter，空值回退默认聊天模型；含热更新与 API/插件控制）④ Obsidian 插件设置面板新增「服务端配置」区（严格模式/重排序/阈值/响应缓存/沉淀/追问改写/历史/模型路由 → /v1/config 热生效）。测试 **94 项**。
+>
+> **第四期（2026-09-04）**：⑤ 行级引文（chunker 记录原文行号 → sources 携带 line_start/end_line → 插件打开笔记选中高亮）⑥ 多模态附件（PDF/DOCX/PPTX 提取内嵌图片 → data/attachments + 上下文说明，随来源返回、插件可打开）⑦ 会话管理（服务端 JSON 持久化 + /v1/sessions CRUD + 插件会话栏）⑧ 项目导出/导入（ZIP 归档：配置/文档清单/向量库/变更清单/会话/附件；merge/replace）⑨ 递归 Deep Research（最大轮次可配 + 新信息增益停止）⑩ CI/发布（GitHub Actions + Makefile + 插件安装指引 docs/obsidian-plugin-install.md）。测试 **102 项**。
 
 ---
 

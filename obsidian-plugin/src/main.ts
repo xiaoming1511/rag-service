@@ -229,6 +229,8 @@ export default class RAGServicePlugin extends Plugin {
   async openSource(source: SourceInfo): Promise<void> {
     const filePath = source.file_path || "";
     const heading = source.heading || "";
+    const lineStart = source.line_start || 0;
+    const lineEnd = source.line_end || 0;
 
     if (!filePath) {
       new Notice(`缺少来源路径: ${source.file_name}`);
@@ -258,10 +260,25 @@ export default class RAGServicePlugin extends Plugin {
     const leaf = this.app.workspace.getLeaf(false);
     await leaf.openFile(file);
 
-    // 尽力定位标题锚点：在编辑器中查找标题行并移动光标
-    if (heading) {
+    // 定位：优先按行号选中命中片段（行级引文高亮），否则按标题锚点
+    if (lineStart > 0) {
+      this.locateLines(lineStart, Math.max(lineStart, lineEnd));
+    } else if (heading) {
       this.locateHeading(heading);
     }
+  }
+
+  /** 在已打开的笔记中选中指定行区间（行级引文高亮） */
+  private locateLines(startLine: number, endLine: number): void {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view) return;
+    const editor = view.editor;
+    const from = { line: Math.max(0, startLine - 1), ch: 0 };
+    const lastLine = Math.min(editor.lineCount() - 1, Math.max(from.line, endLine - 1));
+    const to = { line: lastLine, ch: editor.getLine(lastLine).length };
+    editor.setSelection(from, to);
+    editor.scrollIntoView({ from, to }, true);
+    editor.focus();
   }
 
   /** 在已打开的笔记中定位标题（尽力而为，找不到则忽略） */

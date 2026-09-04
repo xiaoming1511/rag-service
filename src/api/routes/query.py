@@ -48,6 +48,9 @@ async def query(request: QueryRequest) -> Dict[str, Any]:
                     file_name=s["file_name"],
                     file_path=s.get("file_path") or None,
                     heading=s.get("heading") or None,
+                    line_start=s.get("line_start"),
+                    line_end=s.get("line_end"),
+                    images=s.get("images"),
                     content=s["content"],
                     score=s["score"],
                 )

@@ -38,6 +38,19 @@ class DocxParser(Parser):
 
         content = "\n".join(parts)
 
+        # 提取内嵌图片（多模态：附件存储，说明文字用固定标注）
+        images = []
+        for shape in doc.inline_shapes:
+            try:
+                if getattr(shape, "image", None) is not None:
+                    images.append({
+                        "caption": "Word 文档内嵌图片",
+                        "bytes": shape.image.blob,
+                        "ext": getattr(shape.image, "ext", "png"),
+                    })
+            except Exception:
+                continue  # 单张图片提取失败不影响整体
+
         # 标题：首个非空段落（通常为首个标题/第一行）
         title: Optional[str] = None
         for para in doc.paragraphs:
@@ -46,4 +59,4 @@ class DocxParser(Parser):
                 title = t if len(t) <= 80 else t[:80]
                 break
 
-        return ParsedContent(content=content, title=title)
+        return ParsedContent(content=content, title=title, images=images)

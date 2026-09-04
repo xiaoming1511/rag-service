@@ -96,6 +96,7 @@ class Chunker:
         current_heading_level = 0
         current_content = []
         heading_stack = ["root"]
+        block_start = 0  # 当前内容块在原文中的起始行下标（行级引文用）
 
         # 正则匹配标题行（1-6 级标题）
         heading_pattern = re.compile(r'^(#{1,6})\s+(.+)$')
@@ -106,15 +107,18 @@ class Chunker:
             match = heading_pattern.match(line)
 
             if match:
-                # 保存之前的段落
+                # 保存之前的段落（记录其在原文中的行区间）
                 if current_content:
                     sections.append({
                         'heading': current_heading,
                         'heading_level': current_heading_level,
                         'heading_path': ' > '.join(heading_stack[1:]) if len(heading_stack) > 1 else '',
-                        'content': '\n'.join(current_content).strip()
+                        'content': '\n'.join(current_content).strip(),
+                        'start_idx': block_start,
+                        'end_idx': i - 1,
                     })
                     current_content = []
+                block_start = i + 1  # 无论内容是否为空，下一内容块从标题下一行开始
 
                 # 维护标题层级栈（同级或更高级标题弹出栈顶）
                 level = len(match.group(1))
@@ -139,7 +143,9 @@ class Chunker:
                 'heading': current_heading,
                 'heading_level': current_heading_level,
                 'heading_path': ' > '.join(heading_stack[1:]) if len(heading_stack) > 1 else '',
-                'content': '\n'.join(current_content).strip()
+                'content': '\n'.join(current_content).strip(),
+                'start_idx': block_start,
+                'end_idx': len(lines) - 1,
             })
 
         # 过滤空块，构建 Chunk 对象
@@ -158,6 +164,8 @@ class Chunker:
                     heading_path=section['heading_path'],
                     section_index=idx,
                     document=document,
+                    start_line=section.get('start_idx', -1) + 1,
+                    end_line=section.get('end_idx', -1) + 1,
                 )
                 chunks.extend(sub_chunks)
             else:
@@ -170,6 +178,8 @@ class Chunker:
                         heading_level=section['heading_level'],
                         heading_path=section['heading_path'],
                         chunk_index=idx,
+                        start_line=section.get('start_idx', -1) + 1,
+                        end_line=section.get('end_idx', -1) + 1,
                     )
                 )
                 chunks.append(chunk)
@@ -247,8 +257,10 @@ class Chunker:
             heading_level: int,
             heading_path: str,
             chunk_index: int,
+            start_line: int = 0,
+            end_line: int = 0,
     ) -> Dict[str, Any]:
-        """构建统一的块元数据（同步了 doc_id / file_name / file_path 等）"""
+        """构建统一的块元数据（含原文行区间与附件图片，供行级引文/多模态）"""
         return {
             'doc_id': document.id,
             'file_name': document.file_name,
@@ -257,6 +269,9 @@ class Chunker:
             'heading_level': heading_level,
             'heading_path': heading_path,
             'chunk_index': chunk_index,
+            'start_line': start_line,
+            'end_line': end_line,
+            'images': document.metadata.get('images') or None,
         }
 
     def _split_long_content(
@@ -267,12 +282,15 @@ class Chunker:
             heading_path: str,
             section_index: int,
             document: Document,
+            start_line: int = 0,
+            end_line: int = 0,
     ) -> List[Chunk]:
         """
         切分过长的章节内容（按段落切分）
 
         子块 ID 形如 "{doc_id}_{章节序号}_{子块序号}"，
         保证跨文档全局唯一，避免向量库 ID 冲突。
+        行号取所属章节的行区间（子块内部不再细分）。
 
         Args:
             content: 章节内容
@@ -281,6 +299,8 @@ class Chunker:
             heading_path: 标题路径
             section_index: 章节在文档中的序号
             document: 所属文档
+            start_line: 章节在原文中的起始行（1 起）
+            end_line: 章节在原文中的结束行
 
         Returns:
             List[Chunk]: 子块列表
@@ -306,6 +326,8 @@ class Chunker:
                         heading_level=heading_level,
                         heading_path=heading_path,
                         chunk_index=section_index,
+                        start_line=start_line,
+                        end_line=end_line,
                     ) | {'sub_index': chunk_idx},
                 ))
                 chunk_idx += 1

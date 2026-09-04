@@ -28,10 +28,26 @@ class PDFParser(Parser):
 
         # 逐页提取文本
         pages = []
+        images = []
+
         for page in doc:
             text = page.get_text("text").strip()
             if text:
                 pages.append(text)
+            # 提取本页内嵌图片（多模态：上下文字幕方案，说明文字取本页文本）
+            for img_info in page.get_images(full=True):
+                xref = img_info[0]
+                try:
+                    extracted = doc.extract_image(xref)
+                    if extracted and extracted.get("image"):
+                        caption = (text or "（本页无文字说明）")[:200]
+                        images.append({
+                            "caption": caption,
+                            "bytes": extracted["image"],
+                            "ext": extracted.get("ext", "png"),
+                        })
+                except Exception:
+                    continue  # 单张图片提取失败不影响整体
 
         doc.close()
         content = "\n\n".join(pages)
@@ -43,4 +59,4 @@ class PDFParser(Parser):
             if first_line and len(first_line) <= 80:
                 title = first_line
 
-        return ParsedContent(content=content, title=title, metadata=metadata)
+        return ParsedContent(content=content, title=title, metadata=metadata, images=images)

@@ -104,7 +104,11 @@
 <div class="panel">
   <ul>
     <li><b>问答沉淀 syntheses</b>：每次问答写为 vault 根 <code>syntheses/</code> 的 .md（含 frontmatter+来源），会被再次检索 → 知识记忆循环</li>
-    <li><b>Deep Research 简版</b>：问题 → LLM 拆 3-5 子查询 → 并行检索合并 → 带引用汇总报告（<code>/v1/research</code>）</li>
+    <li><b>Deep Research（递归多轮）</b>：拆解 → 并行检索 → 汇总 → 追问扩展 → 再检索；最大轮次可配、新信息增益为 0 时提前停止（<code>/v1/research?max_rounds=N</code>）</li>
+    <li><b>会话管理</b>：多会话服务端持久化（data/conversations/*.json）+ 插件会话栏（新建/切换/删除，<code>/v1/sessions</code>）</li>
+    <li><b>行级引文</b>：命中片段携带原文行号（start_line/end_line），插件点击来源后直接选中并高亮对应文本行</li>
+    <li><b>多模态（附件方案）</b>：从 PDF/DOCX/PPTX 提取内嵌图片至 data/attachments，附页面临近文本作说明；图片随来源返回，插件可一键打开</li>
+    <li><b>项目导出/导入</b>：ZIP 完整归档（配置+文档清单+向量库+变更清单+会话+附件），支持 merge/replace（<code>/v1/export</code>、<code>/v1/import</code>）</li>
     <li><b>模型路由</b>：chat / rewrite / research_subqueries 三个任务可分别配置模型（空 = 跟随默认聊天模型），简单任务用小模型提速、复杂任务用强模型保质量</li>
     <li><b>AI 知识层</b>：<span class="badge b-mut">外部管理</span> xu/wiki 由 LLM Wiki 负责，本系统不涉及该目录（2026-09-04 确认）</li>
   </ul>
@@ -116,7 +120,7 @@
     <li><b>Obsidian 原生插件</b>（TypeScript）：侧边栏聊天（SSE 流式+多轮）、<b>引用点击跳转打开笔记</b>（含标题锚点定位）、状态栏、命令面板、自动索引（保存防抖+定时兜底）；设置面板含「服务端配置」区：严格模式/重排序/阈值/响应缓存/沉淀/追问改写/历史/模型路由，经 /v1/config 热生效</li>
     <li><b>Web 聊天页</b>：<span class="badge b-mut">已删除（2026-09-04 用户确认）</span> — 查询统一走 Obsidian 插件</li>
     <li><b>CLI</b>：<span class="badge b-mut">已删除（2026-09-04 用户确认）</span> — 统一走 Obsidian 插件 + API</li>
-    <li><b>REST API</b>：/v1/query、/v1/query/stream、/v1/index、/v1/index/refresh、/v1/index/url、/v1/index/async、/v1/index/jobs、/v1/research、/v1/config (GET/POST)、/v1/health、/v1/status</li>
+    <li><b>REST API</b>：/v1/query、/v1/query/stream、/v1/index、/v1/index/refresh、/v1/index/url、/v1/index/async、/v1/index/jobs、/v1/research、/v1/config (GET/POST)、/v1/sessions (CRUD)、/v1/export、/v1/import、/v1/health、/v1/status</li>
     <li><b>质量保障</b>：91 项自动化测试、Git 版本管理、中文注释、设计文档（docs/optimization-plan.md）</li>
   </ul>
 </div>
@@ -248,7 +252,8 @@
     <li>启动服务：<code>python run_api.py</code>（默认 http://127.0.0.1:8080，文档 /docs）</li>
     <li>Obsidian 插件：已安装至 <code>~/projects/obsidian/.obsidian/plugins/rag-service/</code>，启用后命令面板 "打开 RAG 聊天面板"（查询唯一入口）</li>
     <li>API 文档：http://127.0.0.1:8080/docs（根路径 / 自动重定向）</li>
-    <li>配置：config/settings.yaml（模型/阈值/严格模式/沉淀/性能/wiki）</li>
+    <li>配置：config/settings.yaml（模型/阈值/严格模式/沉淀/性能/模型路由），或插件"服务端配置"面板/GET-POST /v1/config</li>
+    <li>CI/发布：.github/workflows/ci.yml（Python 测试 + 插件构建）+ Makefile（test/build-plugin/install-plugin）；插件安装详见 docs/obsidian-plugin-install.md</li>
   </ul>
 </div>
 

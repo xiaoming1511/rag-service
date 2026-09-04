@@ -31,6 +31,7 @@ async def research(request: ResearchRequest) -> Dict[str, Any]:
         result = _pipeline.research(
             question=request.question,
             sub_queries=request.sub_queries,
+            max_rounds=request.max_rounds,
         )
 
         return {
@@ -41,6 +42,9 @@ async def research(request: ResearchRequest) -> Dict[str, Any]:
                     file_name=s["file_name"],
                     file_path=s.get("file_path") or None,
                     heading=s.get("heading") or None,
+                    line_start=s.get("line_start"),
+                    line_end=s.get("line_end"),
+                    images=s.get("images"),
                     content="",
                     score=s["score"],
                 )
