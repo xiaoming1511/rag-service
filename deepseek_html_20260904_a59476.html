@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG 知识库系统 - 完整技术方案总结</title>
+    <style>
+        /* ===== 全局样式 ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #0f0f1a;
+            color: #e0e0e0;
+            padding: 40px 20px;
+            line-height: 1.8;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: #1a1a2e;
+            border-radius: 16px;
+            padding: 40px 48px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+            border: 1px solid #2d2d44;
+        }
+
+        /* ===== 标题 ===== */
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #a78bfa;
+            text-align: center;
+            border-bottom: 2px solid #2d2d44;
+            padding-bottom: 16px;
+            margin-bottom: 24px;
+        }
+
+        h1 .emoji {
+            font-size: 32px;
+        }
+
+        h2 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #c4b5fd;
+            margin-top: 32px;
+            margin-bottom: 12px;
+            padding-left: 12px;
+            border-left: 4px solid #4f46e5;
+        }
+
+        h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #d0d0d0;
+            margin-top: 20px;
+            margin-bottom: 8px;
+        }
+
+        h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #9ca3af;
+            margin-top: 16px;
+            margin-bottom: 6px;
+        }
+
+        /* ===== 段落 ===== */
+        p {
+            color: #c8c8d0;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+
+        ul,
+        ol {
+            padding-left: 24px;
+            margin-bottom: 12px;
+            color: #c8c8d0;
+            font-size: 14px;
+        }
+
+        li {
+            margin-bottom: 4px;
+        }
+
+        /* ===== 代码块 ===== */
+        pre {
+            background: #0d0d1a;
+            border: 1px solid #2d2d44;
+            border-radius: 8px;
+            padding: 16px 20px;
+            overflow-x: auto;
+            margin: 12px 0 16px 0;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            font-size: 13px;
+            color: #d4d4d4;
+            line-height: 1.7;
+        }
+
+        code {
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            font-size: 13px;
+            background: #1a1a2e;
+            padding: 1px 6px;
+            border-radius: 4px;
+            color: #a78bfa;
+        }
+
+        pre code {
+            background: transparent;
+            padding: 0;
+            color: #d4d4d4;
+        }
+
+        /* ===== 表格 ===== */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0 16px 0;
+            font-size: 13px;
+        }
+
+        th,
+        td {
+            border: 1px solid #2d2d44;
+            padding: 8px 14px;
+            text-align: left;
+        }
+
+        th {
+            background: #2d2d44;
+            color: #c4b5fd;
+            font-weight: 600;
+        }
+
+        td {
+            color: #c8c8d0;
+        }
+
+        /* ===== 状态标签 ===== */
+        .tag {
+            display: inline-block;
+            padding: 0 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            margin-left: 6px;
+        }
+
+        .tag.success {
+            background: #1a3a2e;
+            color: #34d399;
+        }
+        .tag.warning {
+            background: #3a2e1a;
+            color: #fbbf24;
+        }
+        .tag.info {
+            background: #1a2a3a;
+            color: #60a5fa;
+        }
+        .tag.error {
+            background: #3a1a1a;
+            color: #f87171;
+        }
+
+        /* ===== 架构图 ===== */
+        .architecture {
+            background: #0d0d1a;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin: 16px 0;
+            border: 1px solid #2d2d44;
+            font-family: "JetBrains Mono", monospace;
+            font-size: 12px;
+            color: #9ca3af;
+            line-height: 2;
+            white-space: pre;
+            overflow-x: auto;
+        }
+
+        /* ===== 链接 ===== */
+        a {
+            color: #a78bfa;
+            text-decoration: none;
+            border-bottom: 1px dashed #a78bfa;
+        }
+
+        a:hover {
+            color: #c4b5fd;
+            border-bottom-color: #c4b5fd;
+        }
+
+        /* ===== 引用 ===== */
+        blockquote {
+            border-left: 3px solid #4f46e5;
+            padding-left: 16px;
+            margin: 12px 0;
+            color: #9ca3af;
+            font-style: italic;
+        }
+
+        /* ===== 分隔线 ===== */
+        hr {
+            border: none;
+            border-top: 1px solid #2d2d44;
+            margin: 24px 0;
+        }
+
+        /* ===== 页脚 ===== */
+        .footer {
+            margin-top: 32px;
+            padding-top: 16px;
+            border-top: 1px solid #2d2d44;
+            text-align: center;
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .footer a {
+            border-bottom: none;
+        }
+
+        /* ===== 响应式 ===== */
+        @media (max-width: 640px) {
+            .container {
+                padding: 20px 16px;
+            }
+            h1 {
+                font-size: 20px;
+            }
+            h2 {
+                font-size: 17px;
+            }
+            pre {
+                font-size: 11px;
+                padding: 12px 14px;
+            }
+            table {
+                font-size: 12px;
+            }
+            th,
+            td {
+                padding: 4px 8px;
+            }
+            .architecture {
+                font-size: 10px;
+                padding: 12px 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+
+        <!-- ============================================================ -->
+        <!--  标题                                                          -->
+        <!-- ============================================================ -->
+        <h1>
+            <span class="emoji">🧠</span>
+            RAG 知识库系统 — 完整技术方案总结
+        </h1>
+
+        <p style="text-align:center; color:#6b7280; font-size:14px; margin-top:-8px;">
+            基于 oMLX + ChromaDB + FastAPI + Obsidian 的本地知识库搭建方案
+        </p>
+
+        <!-- ============================================================ -->
+        <!--  一、系统概述                                                   -->
+        <!-- ============================================================ -->
+        <h2>📌 一、系统概述</h2>
+
+        <p>
+            本系统是一个完全本地运行的 RAG（检索增强生成）知识库，基于 <strong>oMLX</strong> 提供 LLM 推理，
+            <strong>ChromaDB</strong> 提供向量存储，<strong>FastAPI</strong> 提供 API 服务，
+            <strong>Obsidian</strong> 提供知识管理界面。
+        </p>
+
+        <table>
+            <tr>
+                <th>组件</th>
+                <th>选型</th>
+                <th>作用</th>
+                <th>状态</th>
+            </tr>
+            <tr>
+                <td>LLM 推理</td>
+                <td>oMLX 0.6.4</td>
+                <td>本地运行 LLM，支持 OpenAI 兼容 API</td>
+                <td><span class="tag success">✅ 已部署</span></td>
+            </tr>
+            <tr>
+                <td>聊天模型</td>
+                <td>gemma-4-e4b-it-mxfp4</td>
+                <td>生成回答</td>
+                <td><span class="tag success">✅ 已加载</span></td>
+            </tr>
+            <tr>
+                <td>嵌入模型</td>
+                <td>bge-m3-mlx-4bit</td>
+                <td>文本向量化（1024 维）</td>
+                <td><span class="tag success">✅ 已加载</span></td>
+            </tr>
+            <tr>
+                <td>重排序模型</td>
+                <td>bge-reranker-v2-m3</td>
+                <td>检索结果精排</td>
+                <td><span class="tag success">✅ 已加载</span></td>
+            </tr>
+            <tr>
+                <td>向量数据库</td>
+                <td>ChromaDB（嵌入式）</td>
+                <td>存储向量和元数据</td>
+                <td><span class="tag success">✅ 已部署</span></td>
+            </tr>
+            <tr>
+                <td>API 服务</td>
+                <td>FastAPI + Uvicorn</td>
+                <td>提供 RESTful API</td>
+                <td><span class="tag success">✅ 已部署</span></td>
+            </tr>
+            <tr>
+                <td>知识管理</td>
+                <td>Obsidian + Custom Frames</td>
+                <td>前端界面 + 笔记管理</td>
+                <td><span class="tag success">✅ 已集成</span></td>
+            </tr>
+        </table>
+
+        <!-- ============================================================ -->
+        <!--  二、架构设计                                                   -->
+        <!-- ============================================================ -->
+        <h2>🏗️ 二、架构设计</h2>
+
+        <div class="architecture">
+            ┌─────────────────────────────────────────────────────────────────┐
+            │                        接入层 (Interface)                       │
+            │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐    │
+            │  │  Web UI     │  │  Obsidian   │  │  curl / API 客户端   │    │
+            │  │  (HTML/JS)  │  │ Custom Frames│  │                     │    │
+            │  └─────────────┘  └─────────────┘  └─────────────────────┘    │
+            └─────────────────────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+            ┌─────────────────────────────────────────────────────────────────┐
+            │                       API 层 (FastAPI)                         │
+            │  ┌─────────────────────────────────────────────────────────┐    │
+            │  │  POST /v1/query    │  POST /v1/query/stream  │  ...    │    │
+            │  │  POST /v1/index    │  GET /v1/status        │  ...    │    │
+            │  └─────────────────────────────────────────────────────────┘    │
+            └─────────────────────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+            ┌─────────────────────────────────────────────────────────────────┐
+            │                      编排层 (RAG Pipeline)                     │
+            │  ┌─────────────────────────────────────────────────────────┐    │
+            │  │  1. 检索 (Retrieve) → 2. 重排序 (Rerank) → 3. 生成     │    │
+            │  └─────────────────────────────────────────────────────────┘    │
+            └─────────────────────────────────────────────────────────────────┘
+              │              │              │
+              ▼              ▼              ▼
+            ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────────┐
+            │   文档处理层     │ │   检索层         │ │    生成层           │
+            │  DocumentLoader │ │  Retriever      │ │    Generator        │
+            │  Chunker        │ │  Reranker       │ │    PromptBuilder    │
+            │  TextProcessor  │ │  VectorStore    │ │                     │
+            └─────────────────┘ └─────────────────┘ └─────────────────────┘
+              │              │              │
+              └──────────────┼──────────────┘
+                             ▼
+            ┌─────────────────────────────────────────────────────────────────┐
+            │                        基础设施层                               │
+            │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐    │
+            │  │   ChromaDB  │  │   oMLX API  │  │  Obsidian Vault     │    │
+            │  │  (向量存储)  │  │ (模型调用)   │  │  (Markdown 文档)    │    │
+            │  └─────────────┘  └─────────────┘  └─────────────────────┘    │
+            └─────────────────────────────────────────────────────────────────┘
+        </div>
+
+        <!-- ============================================================ -->
+        <!--  三、目录结构                                                   -->
+        <!-- ============================================================ -->
+        <h2>📁 三、项目目录结构</h2>
+
+        <pre>
+rag-service/
+├── api/                           # FastAPI 服务
+│   ├── __init__.py
+│   ├── app.py                     # 应用入口
+│   ├── schemas.py                 # 请求/响应模型
+│   └── routes/
+│       ├── __init__.py
+│       ├── query.py               # 问答路由
+│       ├── index.py               # 索引路由
+│       └── status.py              # 状态路由
+│
+├── config/
+│   └── settings.yaml              # 配置文件
+│
+├── data/
+│   ├── chroma_db/                 # ChromaDB 向量存储
+│   └── cache/embeddings/          # 向量缓存
+│
+├── src/                           # 核心源码
+│   ├── config.py                  # 配置管理
+│   ├── document/
+│   │   ├── loader.py              # 文档加载
+│   │   └── chunker.py             # 文档分块
+│   ├── embedding/
+│   │   ├── client.py              # oMLX API 客户端
+│   │   └── embedder.py            # 嵌入服务
+│   ├── vector_store/
+│   │   ├── base.py                # 抽象基类
+│   │   └── chroma_store.py        # ChromaDB 实现
+│   ├── retrieval/
+│   │   ├── retriever.py           # 检索服务
+│   │   └── reranker.py            # 重排序服务
+│   ├── generation/
+│   │   └── generator.py           # 生成服务
+│   └── pipeline/
+│       ├── indexer.py             # 索引服务
+│       └── rag_pipeline.py        # RAG 主流程
+│
+├── web/
+│   └── index.html                 # 聊天界面
+│
+├── tests/                         # 测试文件
+│   ├── test_loader.py
+│   ├── test_chunker.py
+│   ├── test_embedder.py
+│   ├── test_vector_store.py
+│   ├── test_retrieval.py
+│   ├── test_generator.py
+│   └── test_pipeline.py
+│
+├── run_api.py                     # API 启动脚本
+└── requirements.txt               # Python 依赖
+        </pre>
+
+        <!-- ============================================================ -->
+        <!--  四、API 接口                                                   -->
+        <!-- ============================================================ -->
+        <h2>🌐 四、API 接口</h2>
+
+        <p>服务地址: <code>http://127.0.0.1:8080</code></p>
+
+        <table>
+            <tr>
+                <th>接口</th>
+                <th>方法</th>
+                <th>说明</th>
+            </tr>
+            <tr>
+                <td><code>/v1/health</code></td>
+                <td>GET</td>
+                <td>健康检查</td>
+            </tr>
+            <tr>
+                <td><code>/v1/status</code></td>
+                <td>GET</td>
+                <td>系统状态</td>
+            </tr>
+            <tr>
+                <td><code>/v1/index</code></td>
+                <td>POST</td>
+                <td>建立/重建索引</td>
+            </tr>
+            <tr>
+                <td><code>/v1/query</code></td>
+                <td>POST</td>
+                <td>非流式问答</td>
+            </tr>
+            <tr>
+                <td><code>/v1/query/stream</code></td>
+                <td>POST</td>
+                <td>流式问答（SSE）</td>
+            </tr>
+        </table>
+
+        <h4>📌 调用示例</h4>
+
+        <pre>
+# 1. 健康检查
+curl http://127.0.0.1:8080/v1/health
+
+# 2. 建立索引
+curl -X POST http://127.0.0.1:8080/v1/index \
+  -H "Content-Type: application/json" \
+  -d '{"source_dirs": ["/Users/xuhuaming/projects/obsidian"], "rebuild": true}'
+
+# 3. 流式问答
+curl -X POST http://127.0.0.1:8080/v1/query/stream \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Redis 支持哪些数据结构？", "top_k": 3}'
+
+# 4. 非流式问答
+curl -X POST http://127.0.0.1:8080/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Python 有哪些数据类型？", "top_k": 3}'
+        </pre>
+
+        <!-- ============================================================ -->
+        <!--  五、关键决策记录                                               -->
+        <!-- ============================================================ -->
+        <h2>✅ 五、关键技术决策</h2>
+
+        <table>
+            <tr>
+                <th>决策项</th>
+                <th>最终选择</th>
+                <th>理由</th>
+            </tr>
+            <tr>
+                <td>分块策略</td>
+                <td>按 Markdown 标题切分</td>
+                <td>保持语义完整性，保留来源结构</td>
+            </tr>
+            <tr>
+                <td>同步/异步</td>
+                <td>同步流式</td>
+                <td>Python 3.13 + httpx 异步存在兼容性问题</td>
+            </tr>
+            <tr>
+                <td>重排序</td>
+                <td>默认启用，可配置开关</td>
+                <td>提升检索精度，可灵活控制</td>
+            </tr>
+            <tr>
+                <td>流式输出</td>
+                <td>支持</td>
+                <td>提升用户体验</td>
+            </tr>
+            <tr>
+                <td>开发顺序</td>
+                <td>CLI 验证 → API 封装</td>
+                <td>先验证功能，再封装服务</td>
+            </tr>
+            <tr>
+                <td>索引策略</td>
+                <td>先全量，后续增量</td>
+                <td>简化初期实现</td>
+            </tr>
+            <tr>
+                <td>配置文件</td>
+                <td>YAML</td>
+                <td>可读性好，便于维护</td>
+            </tr>
+            <tr>
+                <td>向量数据库</td>
+                <td>ChromaDB（嵌入式）</td>
+                <td>轻量级，无需独立服务</td>
+            </tr>
+        </table>
+
+        <!-- ============================================================ -->
+        <!--  六、配置说明                                                   -->
+        <!-- ============================================================ -->
+        <h2>⚙️ 六、配置文件 (<code>config/settings.yaml</code>)</h2>
+
+        <pre>
+# ============================================================
+# RAG Service 配置文件
+# ============================================================
+
+omlx:
+  base_url: "http://127.0.0.1:8000/v1"
+  api_key: "dummy"
+  chat_model: "gemma-4-e4b-it-mxfp4"
+  embedding_model: "bge-m3-mlx-4bit"
+  reranker_model: "bge-reranker-v2-m3"
+  timeout: 60.0
+
+chunker:
+  chunk_size: 800
+  overlap: 100
+  strategy: "heading"
+
+retrieval:
+  top_k: 5
+  rerank_top_k: 3
+  enable_rerank: true
+  similarity_threshold: 0.3
+
+generation:
+  max_tokens: 512
+  temperature: 0.3
+  stream: true
+
+vector_store:
+  collection_name: "knowledge_base"
+  persist_directory: "./data/chroma_db"
+
+documents:
+  source_dirs:
+    - "/Users/xuhuaming/projects/obsidian"
+  supported_extensions:
+    - ".md"
+    - ".markdown"
+        </pre>
+
+        <!-- ============================================================ -->
+        <!--  七、Obsidian 集成方式                                         -->
+        <!-- ============================================================ -->
+        <h2>🔗 七、Obsidian 集成</h2>
+
+        <h3>1. Custom Frames 配置</h3>
+        <ul>
+            <li><strong>插件</strong>: Custom Frames</li>
+            <li><strong>URL</strong>: <code>http://127.0.0.1:8080</code></li>
+            <li><strong>Display Name</strong>: RAG AI</li>
+            <li><strong>启用条件</strong>: API 服务必须运行</li>
+        </ul>
+
+        <h3>2. 来源链接问题说明</h3>
+        <p>
+            <strong>现状</strong>：来源显示为可点击的链接（蓝色下划线），点击后会尝试通过
+            <code>obsidian://</code> 协议打开对应笔记。
+        </p>
+        <p>
+            <strong>前提条件</strong>：
+        </p>
+        <ul>
+            <li>Obsidian 必须已经打开（支持 <code>obsidian://</code> URL Scheme）</li>
+            <li>Vault 名称必须与 <code>VAULT_NAME</code> 配置一致</li>
+            <li>文件路径必须相对于 Vault 根目录</li>
+        </ul>
+        <p>
+            <strong>当前障碍</strong>：Obsidian 的 URL Scheme 在 WebView（Custom Frames）中可能被拦截，
+            导致无法跳转。这是 Obsidian 的安全限制，可以通过以下方式解决：
+        </p>
+        <ul>
+            <li>在系统浏览器中打开 <code>obsidian://</code> 链接</li>
+            <li>或开发一个 Obsidian 插件直接调用 <code>app.vault</code> API</li>
+        </ul>
+
+        <!-- ============================================================ -->
+        <!--  八、开发阶段记录                                               -->
+        <!-- ============================================================ -->
+        <h2>📊 八、开发阶段记录</h2>
+
+        <table>
+            <tr>
+                <th>阶段</th>
+                <th>模块</th>
+                <th>状态</th>
+                <th>说明</th>
+            </tr>
+            <tr>
+                <td>Phase 1</td>
+                <td>配置管理 + 文档加载</td>
+                <td><span class="tag success">✅ 完成</span></td>
+                <td>加载 5 个 Markdown 文档</td>
+            </tr>
+            <tr>
+                <td>Phase 2</td>
+                <td>文档分块</td>
+                <td><span class="tag success">✅ 完成</span></td>
+                <td>按标题切分，生成 22 个块</td>
+            </tr>
+            <tr>
+                <td>Phase 3</td>
+                <td>嵌入服务</td>
+                <td><span class="tag success">✅ 完成</span></td>
+                <td>bge-m3 生成 1024 维向量</td>
+            </tr>
+            <tr>
+                <td>Phase 4</td>
+                <td>向量存储</td>
+                <td><span class="tag success">✅ 完成</span></td>
+                <td>ChromaDB 增删改查</td>
+            </tr>
+            <tr>
+                <td>Phase 5</td>
+                <td>检索 + 重排序</td>
+                <td><span class="tag success">✅ 完成</span></td>
+                <td>相似度搜索 + bge-reranker</td>
+            </tr>
+            <tr>
+                <td>Phase 6</td>
+                <td>生成服务</td>
+                <td><span class="tag success">✅ 完成</span></td>
+                <td>流式/非流式输出</td>
+            </tr>
+            <tr>
+                <td>Phase 7</td>
+                <td>RAG Pipeline</td>
+                <td><span class="tag success">✅ 完成</span></td>
+                <td>端到端测试通过</td>
+            </tr>
+            <tr>
+                <td>Phase 8</td>
+                <td>API 服务</td>
+                <td><span class="tag success">✅ 完成</span></td>
+                <td>FastAPI + 流式接口</td>
+            </tr>
+            <tr>
+                <td>Phase 9</td>
+                <td>Web 界面</td>
+                <td><span class="tag info">🔄 优化中</span></td>
+                <td>来源链接功能待完善</td>
+            </tr>
+        </table>
+
+        <!-- ============================================================ -->
+        <!--  九、问题与解决方案                                             -->
+        <!-- ============================================================ -->
+        <h2>🐛 九、遇到的问题与解决方案</h2>
+
+        <table>
+            <tr>
+                <th>问题</th>
+                <th>原因</th>
+                <th>解决方案</th>
+            </tr>
+            <tr>
+                <td>异步流式报错</td>
+                <td>Python 3.13 + httpx 兼容性问题</td>
+                <td>改用同步流式 (<code>generate_stream_sync</code>)</td>
+            </tr>
+            <tr>
+                <td>测试连接失败</td>
+                <td>LLM Wiki 插件 BUG</td>
+                <td>切换到统一模型模式</td>
+            </tr>
+            <tr>
+                <td>API Key 错误</td>
+                <td>oMLX 跳过认证但 Copilot 要求填写</td>
+                <td>填入任意占位符 <code>dummy</code></td>
+            </tr>
+            <tr>
+                <td>配置文件找不到</td>
+                <td>PyCharm 工作目录不是项目根目录</td>
+                <td>修改 <code>config.py</code> 使用 <code>__file__</code></td>
+            </tr>
+            <tr>
+                <td>来源链接无法点击</td>
+                <td>Obsidian WebView 拦截 <code>obsidian://</code></td>
+                <td>开发 Obsidian 插件 或 使用系统浏览器</td>
+            </tr>
+            <tr>
+                <td>检索结果少</td>
+                <td><code>similarity_threshold</code> 过滤</td>
+                <td>降低阈值到 0.1 或 0.05</td>
+            </tr>
+        </table>
+
+        <!-- ============================================================ -->
+        <!--  十、快速启动命令                                               -->
+        <!-- ============================================================ -->
+        <h2>🚀 十、快速启动命令</h2>
+
+        <pre>
+# 1. 启动 oMLX 服务
+omlx serve --model-dir ~/models
+
+# 2. 启动 RAG API 服务
+cd ~/projects/rag-service
+source .venv/bin/activate
+python run_api.py
+
+# 3. 在 Obsidian 中打开 Custom Frames
+#    → 设置 → Custom Frames → 打开 RAG AI
+
+# 4. 测试 API
+curl http://127.0.0.1:8080/v1/health
+        </pre>
+
+        <!-- ============================================================ -->
+        <!--  十一、后续优化方向                                             -->
+        <!-- ============================================================ -->
+        <h2>📌 十一、后续优化方向</h2>
+
+        <ul>
+            <li><strong>增量索引</strong>：监听文件变化，自动更新索引，避免全量重建</li>
+            <li><strong>多格式支持</strong>：支持 PDF、Word、网页等更多文档格式</li>
+            <li><strong>多轮对话</strong>：维护对话历史，支持上下文追问</li>
+            <li><strong>Obsidian 插件</strong>：开发原生插件，绕过 WebView 限制，实现真正的点击跳转</li>
+            <li><strong>部署到服务器</strong>：将服务部署到 NAS 或云服务器，在外网可用</li>
+            <li><strong>性能优化</strong>：引入缓存、批量处理、模型量化等</li>
+        </ul>
+
+        <!-- ============================================================ -->
+        <!--  十二、依赖清单                                                 -->
+        <!-- ============================================================ -->
+        <h2>📦 十二、依赖清单</h2>
+
+        <pre>
+# 核心依赖
+chromadb>=0.4.0          # 向量数据库
+openai>=1.0.0            # oMLX 兼容 OpenAI API
+pydantic>=2.0.0          # 数据模型
+pyyaml>=6.0              # YAML 配置
+
+# API 服务
+fastapi>=0.100.0
+uvicorn>=0.23.0
+
+# 文档处理
+markdown>=3.5            # Markdown 解析
+
+# 工具
+tqdm>=4.66               # 进度条
+        </pre>
+
+        <!-- ============================================================ -->
+        <!--  页脚                                                          -->
+        <!-- ============================================================ -->
+        <div class="footer">
+            <p>
+                搭建完成时间：2026-09-04 &nbsp;·&nbsp;
+                技术栈：Python 3.13 + oMLX 0.6.4 + ChromaDB + FastAPI + Obsidian
+            </p>
+            <p style="margin-top:4px;">
+                📖 API 文档: <a href="http://127.0.0.1:8080/docs" target="_blank">http://127.0.0.1:8080/docs</a>
+                &nbsp;·&nbsp;
+                🧠 聊天界面: <a href="http://127.0.0.1:8080" target="_blank">http://127.0.0.1:8080</a>
+            </p>
+        </div>
+
+    </div>
+
+</body>
+</html>

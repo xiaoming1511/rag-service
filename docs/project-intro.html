@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Service · 项目详细介绍</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #171f31; --panel2: #1d2940; --border: #2a3a5c;
+    --text: #dbe4f3; --muted: #8ba0c0; --accent: #5b9dff; --ok: #2fd48a;
+    --warn: #ffb83d; --red: #ff6b6b; --purple: #b78bff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.75; padding: 24px 16px; max-width: 1080px; margin: 0 auto; font-size: 15px;
+  }
+  h1 { font-size: 28px; color: #fff; margin-bottom: 6px; }
+  h2 { font-size: 21px; margin: 40px 0 14px; padding-left: 12px; border-left: 4px solid var(--accent); color: #fff; }
+  h3 { font-size: 17px; margin: 24px 0 8px; color: var(--accent); }
+  p { margin: 8px 0; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 18px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 12px 0; }
+  .panel2 { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin: 8px 0; }
+  code { background: #26324e; color: #a8c7ff; padding: 2px 6px; border-radius: 5px; font-size: 13px; font-family: "JetBrains Mono", Consolas, monospace; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--panel2); color: #fff; white-space: nowrap; }
+  tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+  .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 20px; vertical-align: middle; margin-left: 4px; }
+  .b-ok { background: rgba(47,212,138,.15); color: var(--ok); border: 1px solid rgba(47,212,138,.4); }
+  .b-red { background: rgba(255,107,107,.15); color: var(--red); border: 1px solid rgba(255,107,107,.4); }
+  .b-yel { background: rgba(255,184,61,.15); color: var(--warn); border: 1px solid rgba(255,184,61,.4); }
+  .b-mut { background: rgba(139,160,192,.12); color: var(--muted); border: 1px solid rgba(139,160,192,.35); }
+  .b-pur { background: rgba(183,139,255,.15); color: var(--purple); border: 1px solid rgba(183,139,255,.4); }
+  .flag { color: var(--red); font-weight: 700; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 10px 0; font-size: 13px; color: var(--muted); }
+  ul, ol { padding-left: 22px; margin: 8px 0; }
+  li { margin: 4px 0; }
+  .grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .card h4 { font-size: 15px; margin-bottom: 6px; color: #fff; }
+  .card p { font-size: 13px; color: var(--muted); }
+  .kv { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; }
+  .kv b { color: #fff; display: inline-block; min-width: 120px; }
+  .todo-item { padding: 8px 12px; border: 1px dashed var(--border); border-radius: 8px; margin: 6px 0; }
+  .todo-item b { color: var(--warn); }
+  .note { font-size: 13px; color: var(--muted); background: rgba(91,157,255,.07); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 4px; margin: 8px 0; }
+  .footer { margin-top: 48px; color: var(--muted); font-size: 13px; text-align: center; border-top: 1px solid var(--border); padding-top: 14px; }
+</style>
+</head>
+<body>
+
+<h1>🧠 RAG Service · 项目详细介绍</h1>
+<div class="sub">Obsidian 知识库之上 —— 可编程 · 可集成 · 可扩展的 AI 能力层 &nbsp;|&nbsp; 生成日期 2026-09-04 &nbsp;|&nbsp; 测试 91 项全通过</div>
+
+<div class="legend">
+  <span><span class="badge b-ok">✅ 已实现</span></span>
+  <span><span class="badge b-red">🔴 冗余待确认</span></span>
+  <span><span class="badge b-yel">🟡 可选保留</span></span>
+  <span><span class="badge b-pur">⏳ 待实现</span></span>
+  <span><span class="badge b-mut">中性/说明</span></span>
+</div>
+
+<!-- ======================= 一、定位 ======================= -->
+<h2>一、系统定位（请以此为准）</h2>
+<div class="panel">
+  <p><b style="color:#fff">本系统的定位：不是替代 Obsidian，也不是替代 LLM Wiki，而是充当三者中的"能力层/使用层"：</b></p>
+  <div class="grid4" style="margin-top:10px">
+    <div class="card"><h4>📒 Obsidian 负责"存"</h4><p>笔记、双链、图谱的载体，是你的知识库本体，本系统只读它、不改造它（除你主动开启的沉淀/知识层写入）。</p></div>
+    <div class="card"><h4>🧩 LLM Wiki 负责"理"（可选并行）</h4><p>把素材自动整理成结构化 wiki 页面（你 vault 里已有的 xu/wiki 结构）。满足需求时优先用它的产物。</p></div>
+    <div class="card"><h4>⚙️ 本系统负责"用"</h4><p>检索-问答-沉淀-自动化-对外接口。它是一层<b>可编程（REST/CLI）、可集成（Obsidian 原生插件/Web）、可扩展（解析器/向量库/配置抽象）</b>的服务。</p></div>
+    <div class="card"><h4>🎯 触发条件</h4><p>当 LLM Wiki 无法满足你的个人需求（程序化调用、自定义管道、精确引用跳转、队列/研究/沉淀等）时，由本系统补齐。</p></div>
+  </div>
+  <div class="note">一句话：<b>知识归 Obsidian 管，知识层归 LLM Wiki 管（可选），知识"使用"归本系统管。</b>三个工具并行互不干扰。</div>
+</div>
+
+<!-- ======================= 二、功能全景 ======================= -->
+<h2>二、当前功能全景</h2>
+
+<h3>2.1 核心问答链路 <span class="badge b-ok">✅</span></h3>
+<div class="panel">
+  <ul>
+    <li><b>向量检索 + 重排序</b>：bge-m3 嵌入（1024 维）初检 → bge-reranker 精排 → 相似度阈值过滤（0.5）</li>
+    <li><b>严格来源模式</b>：检索为空时不调用模型，诚实告知"未找到"（<code>retrieval.strict_sources</code>，默认关）</li>
+    <li><b>相同问题响应缓存</b>：命中直接从 6s+ 降到 2ms（可配置 TTL/开关）</li>
+    <li><b>同步 / 异步 / 流式（SSE）</b>三通道；异步基于 AsyncOpenAI，规避 Python 3.13 的 httpx 流关闭问题</li>
+    <li><b>多轮对话</b>：历史裁剪（最近 10 轮 + 2000 token 预算）、可选 LLM 追问改写（默认关）、前端回传历史</li>
+  </ul>
+</div>
+
+<h3>2.2 索引与多格式 <span class="badge b-ok">✅</span></h3>
+<div class="panel">
+  <ul>
+    <li><b>增量索引</b>：manifest 三态同步（新增/变更先删后加/删除），两段式检测（mtime+size → 内容 MD5），免全量重建</li>
+    <li><b>watchdog 自动监听</b>：服务内置监听源目录，文件变化去抖后自动增量</li>
+    <li><b>后台摄入队列</b>：单 worker 串行 + 磁盘持久化（崩溃恢复）、进度查询与取消（<code>/v1/index/async</code>、<code>/v1/index/jobs</code>）</li>
+    <li><b>7 种格式 + URL</b>：Markdown、TXT、PDF(PyMuPDF)、Word(python-docx)、HTML(bs4)、EPUB(ebooklib)、PPTX(python-pptx)、远程网页（<code>/v1/index/url</code>）</li>
+  </ul>
+</div>
+
+<h3>2.3 知识使用与增值功能 <span class="badge b-ok">✅</span></h3>
+<div class="panel">
+  <ul>
+    <li><b>问答沉淀 syntheses</b>：每次问答写为 vault 根 <code>syntheses/</code> 的 .md（含 frontmatter+来源），会被再次检索 → 知识记忆循环</li>
+    <li><b>Deep Research 简版</b>：问题 → LLM 拆 3-5 子查询 → 并行检索合并 → 带引用汇总报告（<code>/v1/research</code>）</li>
+    <li><b>AI 知识层生成 wiki-builder</b>：为每篇文档生成来源摘要页 + 自动建/更新概念页、实体页，<code>[[互链]]</code>，维护 <code>index.md</code>/<code>log.md</code>（写入既有 <code>xu/wiki/</code>；增量同步后自动串联，可关）</li>
+    <li><b>周期维护</b>：定时补齐知识层（<code>wiki.maintain_interval_min</code>，默认关）</li>
+  </ul>
+</div>
+
+<h3>2.4 对外界面与工具 <span class="badge b-ok">✅</span></h3>
+<div class="panel">
+  <ul>
+    <li><b>Obsidian 原生插件</b>（TypeScript）：侧边栏聊天（SSE 流式+多轮）、<b>引用点击跳转打开笔记</b>（含标题锚点定位）、状态栏、设置面板、命令面板、自动索引（保存防抖+定时兜底）</li>
+    <li><b>Web 聊天页</b>：浏览器流式聊天 + "🕸 图谱"按钮（<span class="flag">见冗余标识</span>）</li>
+    <li><b>CLI</b>：<code>index</code> / <code>query</code> / <code>stats</code> / <code>watch</code></li>
+    <li><b>REST API</b>：/v1/query、/v1/query/stream、/v1/index、/v1/index/refresh、/v1/index/url、/v1/index/async、/v1/index/jobs、/v1/research、/v1/wiki/build、/v1/graph、/v1/health、/v1/status</li>
+    <li><b>质量保障</b>：91 项自动化测试、Git 版本管理、中文注释、设计文档（docs/optimization-plan.md）</li>
+  </ul>
+</div>
+
+<!-- ======================= 三、冗余标识 ======================= -->
+<h2>三、冗余功能标识（待你审阅确认后删除）</h2>
+<div class="panel">
+  <p>根据系统定位（可编程/可集成/可扩展的能力层），以下功能与"Obsidian 自带能力"或"LLM Wiki 重复功能"重叠度高，建议评估删除；<b>本文件不删除任何代码，仅作标识</b>。</p>
+  <table>
+    <tr><th>功能</th><th>重叠对象</th><th>冗余判断</th><th>建议</th></tr>
+    <tr>
+      <td><b>网页端知识图谱可视化</b>（'🕸 图谱'按钮）</td>
+      <td>Obsidian 自带 Graph View（图视图）</td>
+      <td><span class="badge b-red">🔴 高冗余</span> Obsidian 图视图原生支持图谱交互，网页里再做一份 SVG 力导向价值有限</td>
+      <td><b>删除网页可视化</b>；图谱数据若无人消费则一并评估（见下行）</td>
+    </tr>
+    <tr>
+      <td><b>/v1/graph 数据接口 + graph.json</b></td>
+      <td>同上；也是 LLM Wiki 生态（llm-wiki-agent 等）标配的 graph 模块</td>
+      <td><span class="badge b-red">🔴 中冗余</span> 若不做程序化图谱消费（如 MCP/自定义可视化），该接口无人调用</td>
+      <td><b>二选一</b>：①保留接口（契合"可编程"定位）②删除接口与 graph.json，仅保留 wiki-builder 内部生成</td>
+    </tr>
+    <tr>
+      <td><b>Web 聊天页</b>（web/index.html）</td>
+      <td>Obsidian 插件聊天面板</td>
+      <td><span class="badge b-yel">🟡 部分重叠</span> 功能一致；浏览器入口对非 Obsidian 场景仍有价值</td>
+      <td>可保留作轻量入口，或删除（插件已覆盖）</td>
+    </tr>
+    <tr>
+      <td><b>CLI watch 命令</b></td>
+      <td>服务内置 watchdog 自动监听</td>
+      <td><span class="badge b-yel">🟡 功能重叠</span> 仅调试/前台运行场景有用，维护成本低</td>
+      <td>可保留作调试工具，亦可删除</td>
+    </tr>
+    <tr>
+      <td><b>知识导图（备注）</b></td>
+      <td>Obsidian canvas / Graph View</td>
+      <td><span class="badge b-mut">说明</span> 本系统<u>没有独立的"知识导图"功能</u>；网页图谱即其可视化形态，同上处理</td>
+      <td>无需单独开发导图，建议依赖 Obsidian 原生</td>
+    </tr>
+  </table>
+  <div class="note">判定原则：<b>凡 Obsidian 原生已能完成、且与本系统"能力层"定位无关的展示型功能 → 标记冗余</b>；凡参与"检索-生成-沉淀-接口"数据主链路的 → 保留。</div>
+</div>
+
+<!-- ======================= 四、功能差异 ======================= -->
+<h2>四、功能差异对照</h2>
+
+<h3>4.1 vs 传统 RAG 服务</h3>
+<div class="panel">
+  <table>
+    <tr><th>维度</th><th>传统 RAG</th><th>本系统</th></tr>
+    <tr><td>索引更新</td><td>全量重建</td><td>增量三态同步 + 自动监听 + 荣耀队列</td></tr>
+    <tr><td>格式</td><td>多为 Markdown/PDF</td><td>7 种格式 + URL 抓取（解析器注册表可扩展）</td></tr>
+    <tr><td>输出</td><td>单一回答</td><td>严格模式 / 多轮 / 沉淀 / 深度研究 / 知识层生成 多级输出</td></tr>
+    <tr><td>接入</td><td>API + 简单前端</td><td>Obsidian 原生插件 + Web + CLI + 12 个 REST 端点</td></tr>
+    <tr><td>运维</td><td>—</td><td>队列持久化、缓存分层、响应缓存、91 项测试</td></tr>
+  </table>
+</div>
+
+<h3>4.2 vs LLM Wiki 生态（nashsu/llm_wiki、lucasastorian/llmwiki、llm-wiki-agent）</h3>
+<div class="panel">
+  <table>
+    <tr><th>维度</th><th>LLM Wiki</th><th>本系统</th><th>互补关系</th></tr>
+    <tr><td>核心工作</td><td>LLM<b>写</b>知识（生成式）：整理来源/概念/实体页</td><td>LLM<b>读</b>知识（检索式）：问答/沉淀/研究</td><td>LLM Wiki 产出"知识层"，本系统消费/使用它</td></tr>
+    <tr><td>驱动方式</td><td>Agent/编辑器插件/夜间 routine</td><td>常驻服务 + API + 插件 + 监听</td><td>本系统可程序化触发，更适合"个人管道"</td></tr>
+    <tr><td>图谱</td><td>标配（graph.json + vis.js）</td><td>有（本文件标识为冗余待确认）</td><td>重叠 → 按你审阅决定</td></tr>
+    <tr><td>检索/问答</td><td>较弱（重内容生成）</td><td>强（重排/严格模式/缓存/多轮）</td><td>LLM Wiki 缺的部分正是本系统强项</td></tr>
+    <tr><td>可编程性</td><td>多为技能/插件，接口分散</td><td>统一 REST + CLI，可直接被脚本/外部程序调用</td><td>本系统是"集成底座"</td></tr>
+    <tr><td>并行使用</td><td>输出到 vault（如 xu/wiki）</td><td>默认不检索 wiki 目录（用户确认），互不干扰</td><td>可并行：LLM Wiki 维护知识层，本系统做问答/自动化</td></tr>
+  </table>
+</div>
+
+<h3>4.3 vs Obsidian 原生</h3>
+<div class="panel">
+  <table>
+    <tr><th>维度</th><th>Obsidian 原生</th><th>本系统（补充）</th></tr>
+    <tr><td>知识组织</td><td>笔记/双链/图谱/Canvas</td><td>不参与（尊重你的组织方式）</td></tr>
+    <tr><td>AI 问答</td><td>需第三方插件且多为云 API 绑定</td><td>本地模型（oMLX/Qwen）自托管，行为可编程</td></tr>
+    <tr><td>跳转引用</td><td>手动双链</td><td>回答内引用 → 一键打开笔记（原生跳转）</td></tr>
+    <tr><td>自动化</td><td>模板/脚本（受限）</td><td>watchdog 监听 + 队列 + REST，任意程序可控</td></tr>
+    <tr><td>图谱</td><td>Graph View 完整</td><td>重复，已标 🔴</td></tr>
+  </table>
+</div>
+
+<!-- ======================= 五、剩余待实现 ======================= -->
+<h2>五、剩余功能待实现（Roadmap <span class="badge b-pur">⏳</span>）</h2>
+<div class="panel">
+  <div class="todo-item"><b>① 多模态（图片）检索</b>：PDF 内嵌图片提取 + vision 模型配图文/图搜（对齐 LLM Wiki 多模态）</div>
+  <div class="todo-item"><b>② MCP Server</b>：把 /v1/query、/v1/research 等包装成 MCP 工具，Claude/Cursor/Codex 直接读你的知识库（最贴合"可编程/可集成"定位）</div>
+  <div class="todo-item"><b>③ 项目导出/导入</b>：知识库归档（manifest+向量+知识层）打包迁移、从页面重建索引</div>
+  <div class="todo-item"><b>④ 模型路由</b>：生成/摄入/摘要/改写分离配置模型与 provider（对齐 LLM Wiki 的 Chat/Ingest 分离）</div>
+  <div class="todo-item"><b>⑤ 会话管理</b>：Web/插件多会话、会话命名与持久化、历史查看/删除</div>
+  <div class="todo-item"><b>⑥ 行级引文高亮</b>：插件内打开笔记时高亮答案命中的段落（当前为标题锚点级）</div>
+  <div class="todo-item"><b>⑦ 递归多轮 Deep Research</b>：每轮汇总后再追问，直到信息饱和（当前为单层）</div>
+  <div class="todo-item"><b>⑧ 浏览器网页剪辑扩展</b>：一键剪辑网页+高亮入 vault（Obsidian 已有 URL 插入，若插件路线可省略）</div>
+  <div class="todo-item"><b>⑨ 知识层参与检索（决策项）</b>：当前 wiki 目录被排除检索；若希望问答也读 LLM Wiki 生成的知识层产物，可放开排除（需你确认）</div>
+  <div class="todo-item"><b>⑩ CI 与发布</b>：GitHub Actions 跑测试、插件自动构建、pip 打包</div>
+</div>
+
+<!-- ======================= 六、架构与接口 ======================= -->
+<h2>六、技术架构速览</h2>
+<div class="panel">
+  <div class="kv">
+    <span><b>语言/框架</b> Python 3.13 · FastAPI · ChromaDB · OpenAI SDK(Async) · watchdog · PyMuPDF · python-docx · ebooklib · python-pptx</span>
+    <span><b>模型</b> oMLX 本地：Qwen3.5-4B(chat) · bge-m3(embed) · bge-reranker-v2-m3(rerank)</span>
+    <span><b>目录</b> src/（api·pipeline·document·embedding·retrieval·generation·vector_store·cache·wikibuilder）· cli/ · web/ · obsidian-plugin/</span>
+    <span><b>数据</b> data/chroma_db（向量）· data/index_manifest（清单）· data/index_jobs（队列）· data/wiki_graph（图谱）</span>
+    <span><b>测试</b> 91 项（pytest + pytest-asyncio；离线桩 + 实机）</span>
+  </div>
+  <h3 style="margin-top:14px">REST 端点清单</h3>
+  <table>
+    <tr><th>方法+路径</th><th>说明</th></tr>
+    <tr><td>GET /v1/health · /v1/status</td><td>健康检查 · 状态（向量数/集合）</td></tr>
+    <tr><td>POST /v1/query · /v1/query/stream</td><td>同步问答 · SSE 流式问答（多轮/严格模式/沉淀）</td></tr>
+    <tr><td>POST /v1/research</td><td>Deep Research 简版</td></tr>
+    <tr><td>POST /v1/index · /v1/index/refresh</td><td>全量索引 · 增量索引</td></tr>
+    <tr><td>POST /v1/index/url</td><td>网页抓取索引</td></tr>
+    <tr><td>POST /v1/index/async · GET /v1/index/jobs[/{id}] · POST /jobs/{id}/cancel</td><td>后台摄入队列（持久化、进度、取消）</td></tr>
+    <tr><td>POST /v1/wiki/build</td><td>AI 知识层生成（来源摘要/概念/实体+互链+图谱）<span class="badge b-yel">🟡 图谱输出部分待确认</span></td></tr>
+    <tr><td>GET /v1/graph</td><td>知识图谱数据 <span class="badge b-red">🔴 冗余待确认</span></td></tr>
+  </table>
+  <div class="note">端点中标注 🔴/🟡 的即为本文件第三节标记的冗余候选，删除时同步删除对应路由。</div>
+</div>
+
+<!-- ======================= 七、使用入口 ======================= -->
+<h2>七、使用入口</h2>
+<div class="panel">
+  <ul>
+    <li>启动服务：<code>python run_api.py</code>（默认 http://127.0.0.1:8080，文档 /docs）</li>
+    <li>命令行：<code>python cli/main.py {index|query|stats|watch}</code></li>
+    <li>Obsidian 插件：已安装至 <code>~/projects/obsidian/.obsidian/plugins/rag-service/</code>，启用后命令面板 "打开 RAG 聊天面板"</li>
+    <li>Web：浏览器打开 http://127.0.0.1:8080</li>
+    <li>配置：config/settings.yaml（模型/阈值/严格模式/沉淀/性能/wiki）</li>
+  </ul>
+</div>
+
+<div class="footer">本文件为项目自述文档 · 冗余标识（🔴/🟡）待你审阅确认后删除对应功能 · 相关设计见 docs/optimization-plan.md</div>
+
+</body>
+</html>
