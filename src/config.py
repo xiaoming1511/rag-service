@@ -41,6 +41,9 @@ class GenerationConfig(BaseModel):
     max_tokens: int = 512
     temperature: float = 0.3
     stream: bool = True
+    max_history_rounds: int = 10        # 多轮对话保留的最大轮数
+    history_token_budget: int = 2000    # 历史 token 预算，超出从旧到新裁剪
+    rewrite_query: bool = False         # 是否启用追问改写（默认关闭）
 
 
 class VectorStoreConfig(BaseModel):

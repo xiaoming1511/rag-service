@@ -19,6 +19,9 @@ class Generator:
         temperature: float = 0.3,
         stream: bool = True,
         system_prompt: Optional[str] = None,
+        max_history_rounds: int = 10,
+        history_token_budget: int = 2000,
+        rewrite_query: bool = False,
     ):
         """
         初始化生成服务
@@ -30,12 +33,19 @@ class Generator:
             temperature: 温度参数
             stream: 是否启用流式输出
             system_prompt: 系统提示词（默认使用内置中文提示词）
+            max_history_rounds: 多轮对话保留的最大轮数（决策 D6）
+            history_token_budget: 历史 token 预算，超出从旧到新裁剪
+            rewrite_query: 是否启用追问改写（决策 D5）：
+                检索前用模型把追问改写为独立问句，默认关闭
         """
         self.client = client
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.stream = stream
+        self.max_history_rounds = max_history_rounds
+        self.history_token_budget = history_token_budget
+        self.rewrite_query = rewrite_query
 
         # 默认系统提示词
         self.default_system_prompt = (
@@ -194,6 +204,79 @@ class Generator:
             yield chunk
 
     # ================================================================
+    # 追问改写（决策 D5，默认关闭）
+    # ================================================================
+
+    REWRITE_SYSTEM_PROMPT = (
+        "你是对话问题改写助手。请根据对话历史，把用户的追问改写为"
+        "独立、完整、无歧义的问题（不引用「它/那个/这个」等代词）。\n"
+        "只输出改写后的问题本身，不要任何解释或标点修饰。"
+    )
+
+    def rewrite_question(
+        self,
+        question: str,
+        history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        """
+        同步改写追问为独立问题（未启用或无需改写时原样返回）
+
+        Args:
+            question: 用户当前问题
+            history: 对话历史
+
+        Returns:
+            str: 改写后的问题（或原问题）
+        """
+        if not self.rewrite_query or not history or not question.strip():
+            return question
+
+        messages = [
+            {"role": "system", "content": self.REWRITE_SYSTEM_PROMPT},
+            *history[-6:],  # 改写只需最近几轮上下文
+            {"role": "user", "content": f"追问：{question}"},
+        ]
+        try:
+            rewritten = self.client.chat_sync(
+                model=self.model,
+                messages=messages,
+                max_tokens=80,
+                temperature=0.0,
+            )
+            rewritten = (rewritten or "").strip()
+            return rewritten if rewritten else question
+        except Exception as e:
+            print(f"⚠️ 追问改写失败，使用原问题: {e}")
+            return question
+
+    async def rewrite_question_async(
+        self,
+        question: str,
+        history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        """异步改写追问为独立问题（未启用或无需改写时原样返回）"""
+        if not self.rewrite_query or not history or not question.strip():
+            return question
+
+        messages = [
+            {"role": "system", "content": self.REWRITE_SYSTEM_PROMPT},
+            *history[-6:],
+            {"role": "user", "content": f"追问：{question}"},
+        ]
+        try:
+            rewritten = await self.client.chat_async(
+                model=self.model,
+                messages=messages,
+                max_tokens=80,
+                temperature=0.0,
+            )
+            rewritten = (rewritten or "").strip()
+            return rewritten if rewritten else question
+        except Exception as e:
+            print(f"⚠️ 追问改写失败，使用原问题: {e}")
+            return question
+
+    # ================================================================
     # 内部工具
     # ================================================================
 
@@ -203,7 +286,7 @@ class Generator:
         context: str,
         history: Optional[List[Dict[str, str]]] = None,
     ) -> List[Dict[str, str]]:
-        """构建消息列表（系统提示词 + 对话历史 + 用户问题）"""
+        """构建消息列表（系统提示词 + 裁剪后的对话历史 + 用户问题）"""
         messages = []
 
         # 系统提示词
@@ -212,9 +295,15 @@ class Generator:
             "content": self.system_prompt
         })
 
-        # 对话历史
+        # 对话历史（先按轮数与 token 预算裁剪）
         if history:
-            messages.extend(history)
+            from src.generation.history import trim_history
+            trimmed = trim_history(
+                history,
+                max_rounds=self.max_history_rounds,
+                token_budget=self.history_token_budget,
+            )
+            messages.extend(trimmed)
 
         # 用户问题（含上下文）
         user_content = self._build_user_content(query, context)

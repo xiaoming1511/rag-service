@@ -62,6 +62,27 @@
             background: #3a1a1a;
         }
 
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #clear-btn {
+            font-size: 12px;
+            color: #9ca3af;
+            background: #2d2d44;
+            border: 1px solid #3f3f5c;
+            border-radius: 12px;
+            padding: 4px 10px;
+            cursor: pointer;
+        }
+
+        #clear-btn:hover {
+            color: #f87171;
+            background: #3a1a1a;
+        }
+
         /* ===== 聊天容器 ===== */
         #chat-container {
             flex: 1;
@@ -398,7 +419,10 @@
     <!-- ===== 头部 ===== -->
     <div class="header">
         <h1>🧠 RAG AI 助手</h1>
-        <span class="status offline" id="status">● 检测中...</span>
+        <div class="header-right">
+            <button id="clear-btn" title="清空对话">🗑 清空</button>
+            <span class="status offline" id="status">● 检测中...</span>
+        </div>
     </div>
 
     <!-- ===== 聊天区域 ===== -->
@@ -432,6 +456,8 @@
         const statusEl = document.getElementById('status');
 
         let isStreaming = false;
+        // 对话历史（多轮对话追问用；发送时回传，后端会再做轮数与 token 裁剪）
+        let chatHistory = [];
 
         // ============================================================
         //  Marked 配置
@@ -590,6 +616,8 @@
             // 显示用户消息
             addMessage(question, 'user');
             showTyping();
+            // 记录用户消息到对话历史
+            chatHistory.push({ role: 'user', content: question });
 
             try {
                 const response = await fetch(`${API_BASE}/query/stream`, {
@@ -598,7 +626,8 @@
                     body: JSON.stringify({
                         question: question,
                         top_k: 3,
-                        use_rerank: true
+                        use_rerank: true,
+                        history: chatHistory.slice(-20) // 回传最近 20 条，后端再裁剪
                     })
                 });
 
@@ -695,6 +724,11 @@
                     chatContainer.scrollTop = chatContainer.scrollHeight;
                 }
 
+                // 记录助手回答到对话历史（供追问使用）
+                if (fullAnswer) {
+                    chatHistory.push({ role: 'assistant', content: fullAnswer });
+                }
+
             } catch (error) {
                 removeTyping();
                 console.error('Stream error:', error);
@@ -717,6 +751,18 @@
         });
 
         sendBtn.addEventListener('click', sendQuestion);
+
+        // 清空对话按钮：重置历史与聊天区
+        document.getElementById('clear-btn').addEventListener('click', () => {
+            chatHistory = [];
+            chatContainer.innerHTML = '';
+            const ph = document.createElement('div');
+            ph.className = 'placeholder-text';
+            ph.innerHTML = '<span class="icon">📚</span>输入问题开始对话<br>' +
+                '<small>基于你的 Obsidian 知识库 · 支持流式输出</small>';
+            chatContainer.appendChild(ph);
+            input.focus();
+        });
 
         // ============================================================
         //  健康检查

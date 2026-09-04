@@ -93,6 +93,9 @@ def build_pipeline() -> RAGPipeline:
         max_tokens=config.generation.max_tokens,
         temperature=config.generation.temperature,
         stream=config.generation.stream,
+        max_history_rounds=config.generation.max_history_rounds,
+        history_token_budget=config.generation.history_token_budget,
+        rewrite_query=config.generation.rewrite_query,
     )
 
     # 索引器

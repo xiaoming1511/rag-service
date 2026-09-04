@@ -41,6 +41,10 @@ class RAGPipeline:
             use_rerank: bool = True,
     ) -> Dict[str, Any]:
         """同步查询（非流式）"""
+        # 追问改写（决策 D5，默认关闭）：把"那它呢"改写为独立问题
+        if self.generator.rewrite_query and history:
+            question = self.generator.rewrite_question(question, history)
+
         context, results = self.retriever.retrieve_with_context(
             query=question,
             top_k=top_k,
@@ -86,6 +90,10 @@ class RAGPipeline:
         - done:    生成完成（data 为完整回答）
         - error:   流程出错（data 为错误信息）
         """
+        # 追问改写（决策 D5，默认关闭）
+        if self.generator.rewrite_query and history:
+            question = self.generator.rewrite_question(question, history)
+
         # 1. 检索
         context, results = self.retriever.retrieve_with_context(
             query=question,
@@ -140,6 +148,10 @@ class RAGPipeline:
         2. 生成阶段使用 Generator.generate_stream_async 异步流式输出，
            底层已处理 Python 3.13 + httpx 的流关闭兼容性问题。
         """
+        # 追问改写（决策 D5，默认关闭，异步通道）
+        if self.generator.rewrite_query and history:
+            question = await self.generator.rewrite_question_async(question, history)
+
         # 1. 检索（同步组件放入线程池执行）
         retrieve = partial(
             self.retriever.retrieve_with_context,
