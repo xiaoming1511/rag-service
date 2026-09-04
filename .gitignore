@@ -1,0 +1,20 @@
+# ========== Python ==========
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# ========== 运行产物（向量库、嵌入缓存等，可重新生成） ==========
+data/
+*.sqlite3
+
+# ========== 测试与工具 ==========
+.pytest_cache/
+.pytest_tmp/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ========== IDE / 系统 ==========
+.idea/
+.DS_Store

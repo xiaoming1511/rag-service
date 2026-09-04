@@ -1,0 +1,17 @@
+# 核心依赖
+chromadb>=0.4.0          # 向量数据库
+openai>=1.0.0            # oMLX 兼容 OpenAI API
+pydantic>=2.0.0          # 数据模型
+pyyaml>=6.0              # YAML 配置
+
+# 文档处理
+markdown>=3.5            # Markdown 解析
+beautifulsoup4>=4.12     # HTML 清理（可选）
+
+# API 服务 (后期)
+fastapi>=0.100.0
+uvicorn>=0.23.0
+
+# 工具
+tqdm>=4.66               # 进度条
+python-dotenv>=1.0.0     # 环境变量

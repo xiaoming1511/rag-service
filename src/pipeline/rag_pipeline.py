@@ -1,0 +1,220 @@
+"""
+RAG 主流程
+整合索引、检索、重排序、生成，提供同步与异步两条查询通道
+"""
+
+from __future__ import annotations
+
+from typing import List, Optional, Dict, Any, Iterator, AsyncGenerator
+import asyncio
+import json
+from functools import partial
+
+from src.retrieval.retriever import Retriever
+from src.generation.generator import Generator
+
+
+class RAGPipeline:
+    """RAG 主流程"""
+
+    def __init__(
+            self,
+            retriever: Retriever,
+            generator: Generator,
+            max_context_length: int = 2000,
+            include_sources: bool = True,
+    ):
+        self.retriever = retriever
+        self.generator = generator
+        self.max_context_length = max_context_length
+        self.include_sources = include_sources
+
+    # ================================================================
+    # 同步查询
+    # ================================================================
+
+    def query(
+            self,
+            question: str,
+            history: Optional[List[Dict[str, str]]] = None,
+            top_k: Optional[int] = None,
+            use_rerank: bool = True,
+    ) -> Dict[str, Any]:
+        """同步查询（非流式）"""
+        context, results = self.retriever.retrieve_with_context(
+            query=question,
+            top_k=top_k,
+            use_rerank=use_rerank,
+            max_context_length=self.max_context_length,
+        )
+
+        answer = self.generator.generate(
+            query=question,
+            context=context,
+            history=history,
+        )
+
+        return {
+            "answer": answer,
+            "sources": [
+                {
+                    "file_name": r.metadata.get("file_name", "unknown"),
+                    "content": r.content[:200] + "..." if len(r.content) > 200 else r.content,
+                    "score": r.score,
+                }
+                for r in results[:3]
+            ],
+            "context": context,
+            "total_results": len(results),
+        }
+
+    def query_stream(
+            self,
+            question: str,
+            history: Optional[List[Dict[str, str]]] = None,
+            top_k: Optional[int] = None,
+            use_rerank: bool = True,
+    ) -> Iterator[str]:
+        """
+        同步流式查询 - 逐条产出 SSE 格式字符串
+
+        每条事件形如 "data: {json}\n\n"，事件类型：
+        - sources: 检索到的来源列表
+        - chunk:   生成回答的文本片段
+        - done:    生成完成（data 为完整回答）
+        - error:   流程出错（data 为错误信息）
+        """
+        # 1. 检索
+        context, results = self.retriever.retrieve_with_context(
+            query=question,
+            top_k=top_k,
+            use_rerank=use_rerank,
+            max_context_length=self.max_context_length,
+        )
+
+        # 2. 先发送来源信息（JSON 格式）
+        if self.include_sources and results:
+            sources_data = []
+            for r in results[:3]:
+                sources_data.append({
+                    "file_name": r.metadata.get("file_name", "unknown"),
+                    "content": r.content,
+                    "score": r.score,
+                })
+            yield f"data: {json.dumps({'type': 'sources', 'data': sources_data}, ensure_ascii=False)}\n\n"
+
+        # 3. 流式生成回答（逐块发送）
+        full_answer = ""
+        for chunk in self.generator.generate_stream(
+                query=question,
+                context=context,
+                history=history,
+        ):
+            full_answer += chunk
+            yield f"data: {json.dumps({'type': 'chunk', 'data': chunk}, ensure_ascii=False)}\n\n"
+
+        # 4. 发送完成信号
+        yield f"data: {json.dumps({'type': 'done', 'data': full_answer}, ensure_ascii=False)}\n\n"
+
+    # ================================================================
+    # 异步查询
+    # ================================================================
+
+    async def query_stream_async(
+            self,
+            question: str,
+            history: Optional[List[Dict[str, str]]] = None,
+            top_k: Optional[int] = None,
+            use_rerank: bool = True,
+    ) -> AsyncGenerator[str, None]:
+        """
+        异步流式查询 - 逐条产出 SSE 格式字符串（事件格式与 query_stream 一致）
+
+        实现要点：
+        1. 检索依赖同步的 ChromaDB，通过 asyncio.to_thread 放入线程池，
+           避免阻塞事件循环；
+        2. 生成阶段使用 Generator.generate_stream_async 异步流式输出，
+           底层已处理 Python 3.13 + httpx 的流关闭兼容性问题。
+        """
+        # 1. 检索（同步组件放入线程池执行）
+        retrieve = partial(
+            self.retriever.retrieve_with_context,
+            query=question,
+            top_k=top_k,
+            use_rerank=use_rerank,
+            max_context_length=self.max_context_length,
+        )
+        context, results = await asyncio.to_thread(retrieve)
+
+        # 2. 先发送来源信息
+        if self.include_sources and results:
+            sources_data = []
+            for r in results[:3]:
+                sources_data.append({
+                    "file_name": r.metadata.get("file_name", "unknown"),
+                    "content": r.content,
+                    "score": r.score,
+                })
+            yield f"data: {json.dumps({'type': 'sources', 'data': sources_data}, ensure_ascii=False)}\n\n"
+
+        # 3. 异步流式生成回答
+        full_answer = ""
+        async for chunk in self.generator.generate_stream_async(
+                query=question,
+                context=context,
+                history=history,
+        ):
+            full_answer += chunk
+            yield f"data: {json.dumps({'type': 'chunk', 'data': chunk}, ensure_ascii=False)}\n\n"
+
+        # 4. 发送完成信号
+        yield f"data: {json.dumps({'type': 'done', 'data': full_answer}, ensure_ascii=False)}\n\n"
+
+    # ================================================================
+    # 索引
+    # ================================================================
+
+    def index(
+            self,
+            source_dirs: Optional[List[str]] = None,
+            rebuild: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        索引文档
+
+        Args:
+            source_dirs: 源目录列表
+            rebuild: 是否重建（清空现有索引后重新索引）
+
+        Returns:
+            Dict: 索引统计信息；若索引器不可用，返回 {"error": ...}
+        """
+        if not hasattr(self, 'indexer') or self.indexer is None:
+            return {"error": "Indexer not available"}
+
+        # 如果指定了源目录，更新 loader
+        if source_dirs and hasattr(self.indexer, 'loader'):
+            from src.document.loader import DocumentLoader
+            self.indexer.loader = DocumentLoader(
+                source_dirs=source_dirs,
+                extensions=[".md", ".markdown"],
+            )
+
+        return self.indexer.index_all(rebuild=rebuild)
+
+    # ================================================================
+    # 状态统计
+    # ================================================================
+
+    def get_stats(self) -> Dict[str, Any]:
+        """获取系统状态"""
+        if not hasattr(self, 'vector_store'):
+            return {"error": "Vector store not available"}
+
+        return {
+            "vector_store": {
+                "count": self.vector_store.count(),
+                "collection_name": self.vector_store.collection_name,
+            },
+            "status": "running",
+        }

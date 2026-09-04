@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG AI 助手</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js">
+    </script>
+    <style>
+        /* ===== 全局重置 ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #1e1e2f;
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            overflow: hidden;
+        }
+
+        /* ===== 头部 ===== */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #333;
+            flex-shrink: 0;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #a78bfa;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header .status {
+            font-size: 12px;
+            color: #6b7280;
+            padding: 4px 12px;
+            border-radius: 12px;
+            background: #2d2d44;
+        }
+
+        .header .status.online {
+            color: #34d399;
+            background: #1a3a2e;
+        }
+
+        .header .status.offline {
+            color: #f87171;
+            background: #3a1a1a;
+        }
+
+        /* ===== 聊天容器 ===== */
+        #chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 4px 16px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* ===== 消息样式 ===== */
+        .message {
+            max-width: 92%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.7;
+            font-size: 14px;
+            word-wrap: break-word;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: #4f46e5;
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+            background: #2d2d44;
+            border-bottom-left-radius: 4px;
+        }
+
+        /* ===== Markdown 样式 ===== */
+        .message.assistant h1,
+        .message.assistant h2,
+        .message.assistant h3,
+        .message.assistant h4 {
+            margin: 8px 0 4px 0;
+            color: #f0f0f0;
+            font-weight: 600;
+        }
+        .message.assistant h1 {
+            font-size: 20px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 4px;
+        }
+        .message.assistant h2 {
+            font-size: 17px;
+        }
+        .message.assistant h3 {
+            font-size: 15px;
+        }
+        .message.assistant h4 {
+            font-size: 14px;
+        }
+
+        .message.assistant ul,
+        .message.assistant ol {
+            padding-left: 22px;
+            margin: 4px 0;
+        }
+        .message.assistant li {
+            margin: 2px 0;
+        }
+        .message.assistant p {
+            margin: 4px 0;
+        }
+        .message.assistant code {
+            background: #3d3d5c;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #e0e0e0;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+        }
+        .message.assistant pre {
+            background: #1a1a2e;
+            padding: 10px 14px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 6px 0;
+            font-size: 13px;
+            color: #c0c0c0;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            border: 1px solid #333;
+        }
+        .message.assistant pre code {
+            background: transparent;
+            padding: 0;
+            font-size: 13px;
+        }
+        .message.assistant blockquote {
+            border-left: 3px solid #4f46e5;
+            padding-left: 12px;
+            margin: 6px 0;
+            color: #9ca3af;
+        }
+        .message.assistant table {
+            border-collapse: collapse;
+            margin: 6px 0;
+            font-size: 13px;
+            width: 100%;
+        }
+        .message.assistant th,
+        .message.assistant td {
+            border: 1px solid #444;
+            padding: 4px 10px;
+            text-align: left;
+        }
+        .message.assistant th {
+            background: #3d3d5c;
+            font-weight: 600;
+        }
+        .message.assistant hr {
+            border: none;
+            border-top: 1px solid #444;
+            margin: 8px 0;
+        }
+        .message.assistant strong {
+            color: #f0f0f0;
+        }
+        .message.assistant em {
+            color: #d0d0d0;
+        }
+
+        /* ===== 来源样式 ===== */
+        .message .sources {
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid #444;
+            font-size: 12px;
+            color: #9ca3af;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .message .sources .source-label {
+            margin-right: 4px;
+        }
+
+        .source-link {
+            color: #a78bfa;
+            text-decoration: none;
+            border-bottom: 1px dashed #a78bfa;
+            padding: 0 2px;
+            transition: color 0.2s, border-color 0.2s;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .source-link:hover {
+            color: #c4b5fd;
+            border-bottom-color: #c4b5fd;
+        }
+
+        /* ===== 占位提示 ===== */
+        .placeholder-text {
+            color: #6b7280;
+            font-size: 14px;
+            text-align: center;
+            padding: 60px 20px;
+            line-height: 2;
+        }
+
+        .placeholder-text .icon {
+            font-size: 48px;
+            display: block;
+            margin-bottom: 12px;
+        }
+
+        .placeholder-text small {
+            color: #4b5563;
+        }
+
+        /* ===== 输入区域 ===== */
+        .input-area {
+            display: flex;
+            gap: 10px;
+            padding-top: 12px;
+            border-top: 1px solid #333;
+            flex-shrink: 0;
+        }
+
+        .input-area input {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid #444;
+            border-radius: 8px;
+            background: #2d2d44;
+            color: #e0e0e0;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        .input-area input::placeholder {
+            color: #6b7280;
+        }
+
+        .input-area input:focus {
+            border-color: #4f46e5;
+            background: #353550;
+        }
+
+        .input-area button {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            background: #4f46e5;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+            white-space: nowrap;
+        }
+
+        .input-area button:hover {
+            background: #6366f1;
+        }
+
+        .input-area button:active {
+            transform: scale(0.97);
+        }
+
+        .input-area button:disabled {
+            background: #555;
+            cursor: not-allowed;
+            opacity: 0.6;
+            transform: none;
+        }
+
+        /* ===== 思考动画 ===== */
+        .typing-indicator {
+            align-self: flex-start;
+            background: #2d2d44;
+            padding: 10px 18px;
+            border-radius: 12px;
+            border-bottom-left-radius: 4px;
+            font-size: 14px;
+            color: #9ca3af;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .typing-indicator .dots span {
+            animation: blink 1.4s infinite both;
+            display: inline-block;
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .typing-indicator .dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        .typing-indicator .dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes blink {
+            0%,
+            80%,
+            100% {
+                opacity: 0.2;
+            }
+            40% {
+                opacity: 1;
+            }
+        }
+
+        /* ===== 滚动条 ===== */
+        #chat-container::-webkit-scrollbar {
+            width: 5px;
+        }
+        #chat-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        #chat-container::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 4px;
+        }
+        #chat-container::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        /* ===== 错误消息 ===== */
+        .error-text {
+            color: #f87171;
+        }
+
+        /* ===== 响应式 ===== */
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+            .message {
+                max-width: 96%;
+                font-size: 13px;
+                padding: 10px 12px;
+            }
+            .input-area input {
+                font-size: 13px;
+                padding: 8px 12px;
+            }
+            .input-area button {
+                padding: 8px 16px;
+                font-size: 13px;
+            }
+            .header h1 {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== 头部 ===== -->
+    <div class="header">
+        <h1>🧠 RAG AI 助手</h1>
+        <span class="status offline" id="status">● 检测中...</span>
+    </div>
+
+    <!-- ===== 聊天区域 ===== -->
+    <div id="chat-container">
+        <div class="placeholder-text">
+            <span class="icon">📚</span>
+            输入问题开始对话<br>
+            <small>基于你的 Obsidian 知识库 · 支持流式输出</small>
+        </div>
+    </div>
+
+    <!-- ===== 输入区域 ===== -->
+    <div class="input-area">
+        <input type="text" id="question-input" placeholder="输入问题..." autofocus />
+        <button id="send-btn">发送</button>
+    </div>
+
+    <script>
+        // ============================================================
+        //  配置
+        // ============================================================
+        const API_BASE = 'http://127.0.0.1:8080/v1';
+        const VAULT_NAME = 'xu'; // ⚠️ 请替换为你的 Obsidian Vault 名称
+
+        // ============================================================
+        //  元素引用
+        // ============================================================
+        const chatContainer = document.getElementById('chat-container');
+        const input = document.getElementById('question-input');
+        const sendBtn = document.getElementById('send-btn');
+        const statusEl = document.getElementById('status');
+
+        let isStreaming = false;
+
+        // ============================================================
+        //  Marked 配置
+        // ============================================================
+        marked.setOptions({
+            breaks: true,
+            gfm: true,
+            headerIds: false,
+            mangle: false
+        });
+
+        // ============================================================
+        //  工具函数
+        // ============================================================
+        function renderMarkdown(content) {
+            if (!content) return '';
+            try {
+                return marked.parse(content);
+            } catch {
+                return content;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ============================================================
+        //  渲染来源链接（可点击跳转 Obsidian）
+        // ============================================================
+        function renderSources(sources) {
+            if (!sources || sources.length === 0) return '';
+
+            let html = '<div class="sources">';
+            html += '<span class="source-label">📚 来源:</span> ';
+
+            const uniqueSources = [];
+            const seen = new Set();
+            for (const s of sources) {
+                const key = s.file_name;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    uniqueSources.push(s);
+                }
+            }
+
+            uniqueSources.forEach((s, index) => {
+                let displayName = s.file_name
+                    .replace(/\.md\.md$/, '')
+                    .replace(/\.md$/, '')
+                    .replace(/\.markdown$/, '');
+
+                if (displayName.length > 30) {
+                    displayName = displayName.substring(0, 28) + '…';
+                }
+
+                const filePath = encodeURIComponent(s.file_name);
+                const obsidianUrl = `obsidian://open?vault=${VAULT_NAME}&file=${filePath}`;
+
+                html +=
+                    `<a href="${obsidianUrl}" target="_blank" class="source-link" title="在 Obsidian 中打开: ${s.file_name}">${escapeHtml(displayName)}</a>`;
+                if (index < uniqueSources.length - 1) html += ', ';
+            });
+
+            html += '</div>';
+            return html;
+        }
+
+        // ============================================================
+        //  添加消息到聊天界面
+        // ============================================================
+        function addMessage(content, role, sources = null) {
+            const placeholder = chatContainer.querySelector('.placeholder-text');
+            if (placeholder) placeholder.remove();
+
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+
+            if (role === 'assistant') {
+                div.innerHTML = renderMarkdown(content);
+                if (sources && sources.length > 0) {
+                    div.innerHTML += renderSources(sources);
+                }
+            } else {
+                div.textContent = content;
+            }
+
+            chatContainer.appendChild(div);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return div;
+        }
+
+        // ============================================================
+        //  创建流式消息占位
+        // ============================================================
+        function createStreamingMessage() {
+            const placeholder = chatContainer.querySelector('.placeholder-text');
+            if (placeholder) placeholder.remove();
+
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            div.id = 'streaming-message';
+            chatContainer.appendChild(div);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return div;
+        }
+
+        // ============================================================
+        //  思考中动画
+        // ============================================================
+        function showTyping() {
+            const div = document.createElement('div');
+            div.className = 'typing-indicator';
+            div.id = 'typing-indicator';
+            div.innerHTML = `
+                <span class="dots">
+                    <span>●</span>
+                    <span>●</span>
+                    <span>●</span>
+                </span>
+                思考中...
+            `;
+            chatContainer.appendChild(div);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function removeTyping() {
+            const el = document.getElementById('typing-indicator');
+            if (el) el.remove();
+        }
+
+        // ============================================================
+        //  更新状态指示器
+        // ============================================================
+        function updateStatus(state, message = '') {
+            statusEl.textContent = state === 'online' ? '● 在线' : state === 'offline' ? '● 离线' : '● 检测中...';
+            statusEl.className = `status ${state}`;
+            if (message) {
+                statusEl.title = message;
+            }
+        }
+
+        // ============================================================
+        //  核心：发送问题（JSON 流式）- 修复版
+        // ============================================================
+        async function sendQuestion() {
+            const question = input.value.trim();
+            if (!question || isStreaming) return;
+
+            input.value = '';
+            isStreaming = true;
+            sendBtn.disabled = true;
+
+            // 显示用户消息
+            addMessage(question, 'user');
+            showTyping();
+
+            try {
+                const response = await fetch(`${API_BASE}/query/stream`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question: question,
+                        top_k: 3,
+                        use_rerank: true
+                    })
+                });
+
+                removeTyping();
+
+                if (!response.ok) {
+                    const errText = await response.text();
+                    let errMsg = `请求失败 (${response.status})`;
+                    try {
+                        const errJson = JSON.parse(errText);
+                        errMsg = errJson.detail || errMsg;
+                    } catch {
+                        errMsg = errText || errMsg;
+                    }
+                    addMessage(`❌ ${errMsg}`, 'assistant');
+                    isStreaming = false;
+                    sendBtn.disabled = false;
+                    input.focus();
+                    return;
+                }
+
+                // 创建流式消息占位
+                const messageDiv = createStreamingMessage();
+                let fullAnswer = '';
+                let sourcesData = null;
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            if (data === '[DONE]') continue;
+
+                            try {
+                                const parsed = JSON.parse(data);
+                                const type = parsed.type;
+                                const payload = parsed.data;
+
+                                if (type === 'sources') {
+                                    // 保存来源数据
+                                    sourcesData = payload;
+                                    console.log('📚 收到来源:', sourcesData);
+                                } else if (type === 'chunk') {
+                                    fullAnswer += payload;
+                                    // 实时渲染内容（暂时不含来源）
+                                    messageDiv.innerHTML = renderMarkdown(fullAnswer);
+                                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                                } else if (type === 'done') {
+                                    // 最终渲染：内容 + 来源
+                                    let finalHtml = renderMarkdown(fullAnswer);
+                                    if (sourcesData && sourcesData.length > 0) {
+                                        finalHtml += renderSources(sourcesData);
+                                    }
+                                    messageDiv.innerHTML = finalHtml;
+                                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                                } else if (type === 'error') {
+                                    messageDiv.innerHTML = `❌ ${payload}`;
+                                }
+                            } catch (e) {
+                                // 非 JSON 数据，作为普通文本处理（兼容旧格式）
+                                console.warn('非 JSON 数据:', data);
+                                if (data.startsWith('📚 来源:')) {
+                                    const sourceMatch = data.match(/📚 来源:\s*(.+)/);
+                                    if (sourceMatch) {
+                                        const names = sourceMatch[1].split(',').map(s => s.trim());
+                                        sourcesData = names.map(name => ({
+                                            file_name: name.replace(/^-\s*/, '').trim()
+                                        }));
+                                    }
+                                } else if (!data.startsWith('[ERROR]')) {
+                                    fullAnswer += data;
+                                    messageDiv.innerHTML = renderMarkdown(fullAnswer);
+                                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 如果没有任何内容
+                if (!fullAnswer && !sourcesData) {
+                    messageDiv.textContent = '（没有收到回答，请重试）';
+                } else if (fullAnswer && sourcesData && sourcesData.length > 0) {
+                    // 确保最终渲染包含来源
+                    messageDiv.innerHTML = renderMarkdown(fullAnswer) + renderSources(sourcesData);
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                }
+
+            } catch (error) {
+                removeTyping();
+                console.error('Stream error:', error);
+                addMessage(`❌ 网络错误: ${error.message}`, 'assistant');
+            }
+
+            isStreaming = false;
+            sendBtn.disabled = false;
+            input.focus();
+        }
+
+        // ============================================================
+        //  事件绑定
+        // ============================================================
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendQuestion();
+            }
+        });
+
+        sendBtn.addEventListener('click', sendQuestion);
+
+        // ============================================================
+        //  健康检查
+        // ============================================================
+        async function checkStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.status === 'healthy') {
+                        updateStatus('online', '服务运行正常');
+                        return;
+                    }
+                }
+                updateStatus('offline', '服务未响应');
+            } catch {
+                updateStatus('offline', '无法连接到服务');
+            }
+        }
+
+        checkStatus();
+        setInterval(checkStatus, 30000);
+        input.focus();
+
+        console.log('🧠 RAG AI 助手已加载 (JSON 流式版)');
+        console.log(`📡 API: ${API_BASE}`);
+        console.log(`📂 Vault: ${VAULT_NAME}`);
+    </script>
+
+</body>
+</html>

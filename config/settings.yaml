@@ -1,0 +1,44 @@
+# ============================================================
+# RAG Service 配置文件
+# ============================================================
+
+# oMLX API 配置
+omlx:
+  base_url: "http://127.0.0.1:8000/v1"
+  api_key: "dummy"                    # 已跳过认证，占位即可
+  chat_model: "qwen3.5-4b-mlx-4bit"   # 或 gemma-4-e4b-it-mxfp4
+  embedding_model: "bge-m3-mlx-4bit"
+  reranker_model: "bge-reranker-v2-m3"
+  timeout: 60.0
+
+# 文档分块配置
+chunker:
+  chunk_size: 800        # 每段最大字符数
+  overlap: 100           # 重叠字符数（保持上下文连贯）
+  strategy: "heading"    # heading | fixed
+
+# 检索配置
+retrieval:
+  top_k: 5               # 初检索返回数量
+  rerank_top_k: 3        # 重排序后保留数量
+  enable_rerank: true    # 是否启用重排序
+  similarity_threshold: 0.5
+
+# 生成配置
+generation:
+  max_tokens: 512
+  temperature: 0.3
+  stream: true           # 是否启用流式输出
+
+# 向量存储配置
+vector_store:
+  collection_name: "knowledge_base"
+  persist_directory: "./data/chroma_db"
+
+# 文档源配置
+documents:
+  source_dirs:
+    - "/Users/xuhuaming/projects/obsidian"
+  supported_extensions:
+    - ".md"
+    - ".markdown"

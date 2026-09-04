@@ -1,0 +1,118 @@
+"""
+配置管理模块
+加载 YAML 配置文件，提供类型安全的配置访问
+"""
+
+import os
+from pathlib import Path
+from typing import Optional, List
+
+import yaml
+from pydantic import BaseModel, Field
+
+
+class OMLXConfig(BaseModel):
+    """oMLX API 配置"""
+    base_url: str = "http://127.0.0.1:8000/v1"
+    api_key: str = "dummy"
+    chat_model: str = "qwen3.5-4b-mlx-4bit"
+    embedding_model: str = "bge-m3-mlx-4bit"
+    reranker_model: str = "bge-reranker-v2-m3"
+    timeout: float = 60.0
+
+
+class ChunkerConfig(BaseModel):
+    """文档分块配置"""
+    chunk_size: int = 800
+    overlap: int = 100
+    strategy: str = "heading"  # 分块策略：heading（按标题）| fixed（按固定大小）
+
+
+class RetrievalConfig(BaseModel):
+    """检索配置"""
+    top_k: int = 5
+    rerank_top_k: int = 3
+    enable_rerank: bool = True
+    similarity_threshold: float = 0.5
+
+
+class GenerationConfig(BaseModel):
+    """生成配置"""
+    max_tokens: int = 512
+    temperature: float = 0.3
+    stream: bool = True
+
+
+class VectorStoreConfig(BaseModel):
+    """向量存储配置"""
+    collection_name: str = "knowledge_base"
+    persist_directory: str = "./data/chroma_db"
+
+
+class DocumentsConfig(BaseModel):
+    """文档源配置"""
+    source_dirs: List[str] = Field(default_factory=list)
+    supported_extensions: List[str] = Field(default_factory=lambda: [".md", ".markdown"])
+
+
+class AppConfig(BaseModel):
+    """应用总配置"""
+    omlx: OMLXConfig = Field(default_factory=OMLXConfig)
+    chunker: ChunkerConfig = Field(default_factory=ChunkerConfig)
+    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    generation: GenerationConfig = Field(default_factory=GenerationConfig)
+    vector_store: VectorStoreConfig = Field(default_factory=VectorStoreConfig)
+    documents: DocumentsConfig = Field(default_factory=DocumentsConfig)
+
+
+class ConfigManager:
+    """配置管理器（单例模式）"""
+
+    _instance: Optional["ConfigManager"] = None
+    _config: Optional[AppConfig] = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def load(self, config_path: str = "config/settings.yaml") -> AppConfig:
+        """加载配置文件"""
+        config_file = Path(config_path)
+
+        # 如果不是绝对路径，基于项目根目录解析
+        if not config_file.is_absolute():
+            # 获取项目根目录（src/config.py 的父目录）
+            project_root = Path(__file__).parent.parent
+            config_file = project_root / config_path
+
+        if not config_file.exists():
+            raise FileNotFoundError(f"配置文件不存在: {config_file}")
+
+        with open(config_file, "r", encoding="utf-8") as f:
+            raw_config = yaml.safe_load(f)
+
+        # 处理环境变量覆盖
+        if os.getenv("OMLX_BASE_URL"):
+            raw_config["omlx"]["base_url"] = os.getenv("OMLX_BASE_URL")
+        if os.getenv("OMLX_CHAT_MODEL"):
+            raw_config["omlx"]["chat_model"] = os.getenv("OMLX_CHAT_MODEL")
+
+        self._config = AppConfig(**raw_config)
+        return self._config
+
+    @property
+    def config(self) -> AppConfig:
+        """获取配置"""
+        if self._config is None:
+            raise RuntimeError("请先调用 load() 加载配置")
+        return self._config
+
+
+# 全局配置管理器实例
+config_manager = ConfigManager()
+
+
+def get_config() -> AppConfig:
+    """获取配置的便捷函数"""
+    return config_manager.config
