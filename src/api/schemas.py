@@ -71,6 +71,33 @@ class IndexUrlResponse(BaseModel):
     message: str
 
 
+class JobRequest(BaseModel):
+    """摄入任务提交请求"""
+    kind: str = "incremental"  # full | incremental | url
+    rebuild: Optional[bool] = False
+    url: Optional[str] = None
+    timeout: Optional[float] = 30.0
+
+
+class JobResponse(BaseModel):
+    """摄入任务对象"""
+    id: str
+    kind: str
+    status: str
+    progress: str = ""
+    error: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+    created_at: float
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+
+
+class JobListResponse(BaseModel):
+    """摄入任务列表"""
+    jobs: List[JobResponse]
+    total: int
+
+
 class StatusResponse(BaseModel):
     """状态响应"""
     status: str

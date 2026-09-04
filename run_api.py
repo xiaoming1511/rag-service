@@ -107,6 +107,13 @@ def main():
     from src.cache.response_cache import ResponseCache
     from src.pipeline.rag_pipeline import RAGPipeline
 
+    # 问答沉淀目录（默认 = 源目录根/syntheses，会被加载器索引，形成知识复利）
+    syntheses_dir = config.syntheses.dir
+    if not syntheses_dir and config.documents.source_dirs:
+        syntheses_dir = str(
+            Path(config.documents.source_dirs[0]).expanduser().resolve() / "syntheses"
+        )
+
     pipeline = RAGPipeline(
         retriever=retriever,
         generator=generator,
@@ -116,6 +123,9 @@ def main():
             enabled=config.performance.response_cache,
             ttl=config.performance.response_cache_ttl,
         ),
+        strict_sources=config.retrieval.strict_sources,
+        save_syntheses=config.syntheses.enabled,
+        syntheses_dir=syntheses_dir,
     )
     pipeline.indexer = indexer
     pipeline.vector_store = vector_store
@@ -126,6 +136,22 @@ def main():
 
     index_sync = IndexSync(indexer)  # manifest 落在向量库目录下
     pipeline._index_sync = index_sync
+
+    # 后台摄入队列（单 worker + 磁盘持久化）
+    from src.pipeline.ingest_queue import IngestQueue
+
+    def run_index_job(job):
+        """队列任务执行函数（pipeline 同步接口的非阻塞包装）"""
+        if job.kind == "full":
+            return pipeline.index(rebuild=job.params.get("rebuild", False))
+        if job.kind == "incremental":
+            return pipeline.index_incremental(rebuild=job.params.get("rebuild", False))
+        if job.kind == "url":
+            return pipeline.index_url(url=job.params["url"], timeout=job.params.get("timeout", 30.0))
+        raise ValueError(f"未知任务类型: {job.kind}")
+
+    ingest_queue = IngestQueue(run_fn=run_index_job, store_path="./data/index_jobs.json")
+    pipeline.ingest_queue = ingest_queue
 
     watcher = IndexWatcher(
         source_dirs=config.documents.source_dirs,
@@ -158,10 +184,12 @@ def main():
     print("   - 聊天界面: http://127.0.0.1:8080")
     print("   - 健康检查: http://127.0.0.1:8080/v1/health")
     print("   - 增量索引: POST /v1/index/refresh")
+    print("   - 后台摄入: POST /v1/index/async · GET /v1/index/jobs")
     print("=" * 60)
 
-    # 启动增量索引自动监听（守护线程）
+    # 启动增量索引自动监听（守护线程）与摄入队列 worker（惰性启动）
     watcher.start()
+    ingest_queue._ensure_worker()
 
     try:
         uvicorn.run(
@@ -172,6 +200,7 @@ def main():
         )
     finally:
         watcher.stop()
+        ingest_queue.shutdown()
 
 
 if __name__ == "__main__":

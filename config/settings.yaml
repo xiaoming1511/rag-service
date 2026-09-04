@@ -23,6 +23,7 @@ retrieval:
   rerank_top_k: 3        # 重排序后保留数量
   enable_rerank: true    # 是否启用重排序
   similarity_threshold: 0.5
+  strict_sources: false  # 严格来源模式：检索为空时不调用模型，直接告知未找到（默认关）
 
 # 生成配置
 generation:
@@ -57,3 +58,8 @@ documents:
     - ".html"
     - ".htm"
     - ".txt"
+
+# 问答沉淀配置（syntheses）
+syntheses:
+  enabled: true          # 每次问答写为 vault 根 syntheses/ 下的 .md（可被再次检索）
+  dir: ""                # 空 = 自动（source_dirs[0]/syntheses）

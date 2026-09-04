@@ -108,8 +108,12 @@ def build_pipeline() -> RAGPipeline:
         max_workers=config.performance.index_max_workers or None,
     )
 
-    # 组装 Pipeline（响应缓存来自性能配置）
+    # 组装 Pipeline（响应缓存来自性能配置；严格模式与问答沉淀来自检索/沉淀配置）
     from src.cache.response_cache import ResponseCache
+    syntheses_dir = config.syntheses.dir
+    if not syntheses_dir and config.documents.source_dirs:
+        syntheses_dir = str(Path(config.documents.source_dirs[0]).expanduser().resolve() / "syntheses")
+
     pipeline = RAGPipeline(
         retriever=retriever,
         generator=generator,
@@ -119,6 +123,9 @@ def build_pipeline() -> RAGPipeline:
             enabled=config.performance.response_cache,
             ttl=config.performance.response_cache_ttl,
         ),
+        strict_sources=config.retrieval.strict_sources,
+        save_syntheses=config.syntheses.enabled,
+        syntheses_dir=syntheses_dir,
     )
     pipeline.indexer = indexer
     pipeline.vector_store = vector_store

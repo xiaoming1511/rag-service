@@ -24,6 +24,9 @@ class RAGPipeline:
             max_context_length: int = 2000,
             include_sources: bool = True,
             response_cache: Optional[Any] = None,
+            strict_sources: bool = False,
+            save_syntheses: bool = True,
+            syntheses_dir: Optional[str] = None,
     ):
         self.retriever = retriever
         self.generator = generator
@@ -31,6 +34,11 @@ class RAGPipeline:
         self.include_sources = include_sources
         # 相同问题响应缓存（决策 D7）；None 表示不启用
         self.response_cache = response_cache
+        # 严格来源模式：检索结果为空时不调用模型（决策：默认关，可配置开）
+        self.strict_sources = strict_sources
+        # 问答沉淀（syntheses）：每次问答写为 vault 根 syntheses/ 下的 .md
+        self.save_syntheses = save_syntheses
+        self.syntheses_dir = syntheses_dir
 
     # ================================================================
     # 同步查询
@@ -62,7 +70,32 @@ class RAGPipeline:
         if self.response_cache is not None and not history:
             self.response_cache.put(cache_key, result)
 
+        # 问答沉淀（仅沉淀有来源的结果，避免记录空查询）
+        if self.save_syntheses and result.get("sources"):
+            self._save_synthesis(question, result["answer"], result["sources"])
+
         return result
+
+    def _save_synthesis(
+            self,
+            question: str,
+            answer: str,
+            sources: List[Dict[str, Any]],
+    ):
+        """把一次问答沉淀到 syntheses 目录（失败不影响主流程）"""
+        from src.pipeline.syntheses import resolve_syntheses_dir, save_syntheses
+
+        if self.syntheses_dir:
+            out_dir = resolve_syntheses_dir([], self.syntheses_dir)
+        else:
+            # 未显式配置时，从索引器 loader 的源目录推导（source_dirs[0]/syntheses）
+            loader = getattr(getattr(self, "indexer", None), "loader", None)
+            srcs = [str(s) for s in (loader.source_dirs if loader and hasattr(loader, "source_dirs") else [])]
+            if not srcs:
+                return  # 无法推导沉淀目录，跳过
+            out_dir = resolve_syntheses_dir(srcs)
+
+        save_syntheses(question, answer, sources, out_dir)
 
     def _query_inner(
             self,
@@ -78,6 +111,20 @@ class RAGPipeline:
             use_rerank=use_rerank,
             max_context_length=self.max_context_length,
         )
+
+        # 严格来源模式：检索结果为空 → 不调用模型，直接告知未找到
+        if self.strict_sources and not results:
+            answer = (
+                f"未从知识库中找到与「{question}」相关的上下文"
+                "（严格来源模式已开启）。\n\n"
+                "建议换个问法，或先通过 /v1/index 建立/更新索引后再试。"
+            )
+            return {
+                "answer": answer,
+                "sources": [],
+                "context": "",
+                "total_results": 0,
+            }
 
         answer = self.generator.generate(
             query=question,
@@ -129,6 +176,16 @@ class RAGPipeline:
             max_context_length=self.max_context_length,
         )
 
+        # 严格来源模式：检索为空 → 不调用模型
+        if self.strict_sources and not results:
+            strict_msg = (
+                f"未从知识库中找到与「{question}」相关的上下文"
+                "（严格来源模式已开启）。建议换个问法，或先建立/更新索引。"
+            )
+            yield f"data: {json.dumps({'type': 'chunk', 'data': strict_msg}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'data': strict_msg}, ensure_ascii=False)}\n\n"
+            return
+
         # 2. 先发送来源信息（JSON 格式）
         if self.include_sources and results:
             sources_data = []
@@ -154,6 +211,10 @@ class RAGPipeline:
 
         # 4. 发送完成信号
         yield f"data: {json.dumps({'type': 'done', 'data': full_answer}, ensure_ascii=False)}\n\n"
+
+        # 5. 问答沉淀（仅在有来源时）
+        if self.save_syntheses and sources_data:
+            self._save_synthesis(question, full_answer, sources_data)
 
     # ================================================================
     # 异步查询
@@ -189,6 +250,16 @@ class RAGPipeline:
         )
         context, results = await asyncio.to_thread(retrieve)
 
+        # 严格来源模式：检索为空 → 不调用模型
+        if self.strict_sources and not results:
+            strict_msg = (
+                f"未从知识库中找到与「{question}」相关的上下文"
+                "（严格来源模式已开启）。建议换个问法，或先建立/更新索引。"
+            )
+            yield f"data: {json.dumps({'type': 'chunk', 'data': strict_msg}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'data': strict_msg}, ensure_ascii=False)}\n\n"
+            return
+
         # 2. 先发送来源信息
         if self.include_sources and results:
             sources_data = []
@@ -214,6 +285,10 @@ class RAGPipeline:
 
         # 4. 发送完成信号
         yield f"data: {json.dumps({'type': 'done', 'data': full_answer}, ensure_ascii=False)}\n\n"
+
+        # 5. 问答沉淀（仅在有来源时）
+        if self.save_syntheses and sources_data:
+            self._save_synthesis(question, full_answer, sources_data)
 
     # ================================================================
     # 索引

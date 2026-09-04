@@ -34,6 +34,13 @@ class RetrievalConfig(BaseModel):
     rerank_top_k: int = 3
     enable_rerank: bool = True
     similarity_threshold: float = 0.5
+    strict_sources: bool = False  # 严格来源模式：检索为空时不调用模型，直接告知未找到
+
+
+class SynthesesConfig(BaseModel):
+    """问答沉淀配置（syntheses）"""
+    enabled: bool = True
+    dir: str = ""  # 沉淀目录；空 = 自动（source_dirs[0]/syntheses，会被加载器索引）
 
 
 class GenerationConfig(BaseModel):
@@ -75,6 +82,7 @@ class AppConfig(BaseModel):
     vector_store: VectorStoreConfig = Field(default_factory=VectorStoreConfig)
     documents: DocumentsConfig = Field(default_factory=DocumentsConfig)
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
+    syntheses: SynthesesConfig = Field(default_factory=SynthesesConfig)
 
 
 class ConfigManager:
