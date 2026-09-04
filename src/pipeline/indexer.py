@@ -191,3 +191,52 @@ class Indexer:
             "collection_name": self.collection_name,
             "embedding_dimension": self.embedder.get_embedding_dimension(),
         }
+
+    def index_url(self, url: str, timeout: float = 30.0) -> Dict[str, Any]:
+        """
+        索引远程网页（抓取 → 解析 → 分块 → 嵌入 → 入库）
+
+        Args:
+            url: 网页地址
+            timeout: 抓取超时秒数
+
+        Returns:
+            Dict: 索引结果
+        """
+        # 1. 抓取并解析为文档
+        document = self.loader.load_url(url, timeout=timeout)
+        if not document:
+            return {"success": False, "error": "网页抓取或解析失败"}
+
+        # 2. 检查是否已存在（按 URL 文档 ID）
+        existing = self.vector_store.get_by_doc_id(document.id)
+        if existing:
+            print(f"⚠️ 网页已索引，跳过: {url}")
+            return {"success": True, "skipped": True, "url": url}
+
+        # 3. 分块
+        chunks = self.chunker.chunk_document(document)
+        if not chunks:
+            return {"success": False, "error": "分块失败（网页内容为空）"}
+
+        # 4. 生成向量并入库
+        chunk_texts = [c.content for c in chunks]
+        embeddings = self.embedder.embed(chunk_texts)
+
+        ids = [c.id for c in chunks]
+        documents_content = [c.content for c in chunks]
+        metadatas = [c.metadata for c in chunks]
+
+        self.vector_store.add(
+            ids=ids,
+            embeddings=embeddings,
+            documents=documents_content,
+            metadatas=metadatas,
+        )
+
+        return {
+            "success": True,
+            "url": url,
+            "title": document.metadata.get("title", ""),
+            "chunks": len(chunks),
+        }

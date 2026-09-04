@@ -1,22 +1,24 @@
 """
 文档加载器
-从指定目录递归加载 Markdown 文件
+从指定目录递归加载多种格式文档（Markdown/PDF/Word/HTML/纯文本），
+支持远程网页 URL 抓取；解析逻辑由解析器注册表按扩展名自动路由。
 """
 
 import os
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+
 from dataclasses import dataclass, field
 from datetime import datetime
 
-import yaml
+from src.document.parsers import DEFAULT_PARSERS, Parser
 
 
 @dataclass
 class Document:
     """文档数据模型"""
-    id: str  # 文档唯一标识（文件路径的哈希）
-    file_path: str  # 文件绝对路径
+    id: str  # 文档唯一标识（文件路径/URL 的哈希）
+    file_path: str  # 文件绝对路径或 URL
     file_name: str  # 文件名
     content: str  # 原始内容
     metadata: Dict[str, Any] = field(default_factory=dict)  # 元数据
@@ -30,20 +32,47 @@ class Document:
 class DocumentLoader:
     """文档加载器"""
 
-    def __init__(self, source_dirs: List[str], extensions: List[str] = None):
+    # watchdog 等需要忽略的目录（用户确认：继续排除 wiki 目录）
+    EXCLUDE_DIRS = {"wiki", "node_modules"}
+
+    def __init__(
+            self,
+            source_dirs: List[str],
+            extensions: Optional[List[str]] = None,
+            parsers: Optional[List[Parser]] = None,
+    ):
         """
         初始化加载器
 
         Args:
             source_dirs: 源目录列表
-            extensions: 支持的文件扩展名，默认 ['.md', '.markdown']
+            extensions: 支持的扩展名列表；None 表示使用全部可用解析器的扩展名
+            parsers: 自定义解析器列表；None 使用默认解析器（md/txt/pdf/docx/html）
         """
         self.source_dirs = [Path(d).expanduser().resolve() for d in source_dirs]
-        self.extensions = extensions or ['.md', '.markdown']
+
+        # 构建扩展名 → 解析器 注册表
+        parser_list = parsers if parsers is not None else DEFAULT_PARSERS
+        self._parsers: Dict[str, Parser] = {}
+        for parser in parser_list:
+            for ext in parser.extensions:
+                self._parsers[ext.lower()] = parser
+
+        # 支持扩展名（与注册表取交集）
+        if extensions is None:
+            self.extensions = sorted(self._parsers.keys())
+        else:
+            self.extensions = [
+                e.lower() for e in extensions if e.lower() in self._parsers
+            ]
+
+    # ================================================================
+    # 目录加载
+    # ================================================================
 
     def load(self) -> List[Document]:
         """
-        加载所有源目录下的 Markdown 文件
+        加载所有源目录下的支持文档
 
         Returns:
             List[Document]: 文档列表
@@ -77,13 +106,89 @@ class DocumentLoader:
             return None
         return self._load_single_file(path)
 
+    # ================================================================
+    # URL 加载
+    # ================================================================
+
+    def load_url(self, url: str, timeout: float = 30.0) -> Optional[Document]:
+        """
+        抓取远程网页并解析为文档
+
+        Args:
+            url: 网页地址
+            timeout: 请求超时秒数
+
+        Returns:
+            Optional[Document]: 文档对象，失败返回 None
+        """
+        import httpx
+
+        try:
+            response = httpx.get(
+                url,
+                timeout=timeout,
+                follow_redirects=True,
+                headers={"User-Agent": "rag-service/1.0"},
+            )
+            response.raise_for_status()
+        except Exception as e:
+            print(f"⚠️ 抓取 URL 失败: {url} - {e}")
+            return None
+
+        parser = self._parsers.get(".html")
+        if parser is None:
+            print("⚠️ 未注册 HTML 解析器，无法解析网页")
+            return None
+
+        try:
+            parsed = parser.parse_bytes(response.content, url)
+        except Exception as e:
+            print(f"⚠️ 解析网页失败: {url} - {e}")
+            return None
+
+        content = parsed.content.strip()
+        if not content:
+            return None
+
+        # URL 文档：file_path 记 URL，file_name 用标题或域名
+        from urllib.parse import urlparse
+        host = urlparse(url).netloc or url
+        file_name = parsed.title or host
+
+        # 构建元数据
+        metadata = {
+            'file_path': url,
+            'file_name': file_name,
+            'source': 'url',
+            'url': url,
+            'title': parsed.title or "",
+            'fetch_time': datetime.now().isoformat(),
+        }
+        metadata.update(parsed.metadata)
+
+        doc_id = self._generate_id(url)
+        return Document(
+            id=doc_id,
+            file_path=url,
+            file_name=file_name,
+            content=content,
+            metadata=metadata,
+        )
+
+    # ================================================================
+    # 内部工具
+    # ================================================================
+
     def _walk_files(self, source_dir: Path) -> List[Path]:
-        """递归遍历目录，返回所有支持的 Markdown 文件"""
+        """递归遍历目录，返回所有支持的文档文件"""
         files = []
 
         for root, dirs, filenames in os.walk(source_dir):
-            # 跳过隐藏目录和常见非内容目录
-            dirs[:] = [d for d in dirs if not d.startswith('.') and d != 'wiki' and d != 'node_modules']
+            # 跳过隐藏目录与用户确认忽略的目录
+            dirs[:] = [
+                d for d in dirs
+                if not d.startswith('.') and d not in self.EXCLUDE_DIRS
+            ]
 
             for filename in filenames:
                 file_path = Path(root) / filename
@@ -93,49 +198,44 @@ class DocumentLoader:
         return files
 
     def _load_single_file(self, file_path: Path) -> Optional[Document]:
-        """加载单个文件，提取内容和元数据"""
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-
-            if not content.strip():
-                return None
-
-            # 构建元数据
-            metadata = {
-                'file_path': str(file_path),
-                'file_name': file_path.name,
-                'file_size': file_path.stat().st_size,
-                'modified_time': datetime.fromtimestamp(file_path.stat().st_mtime).isoformat(),
-                'source_dir': str(file_path.parent),
-            }
-
-            # 提取 Frontmatter（如果存在）
-            if content.startswith('---'):
-                try:
-                    parts = content.split('---', 2)
-                    if len(parts) >= 3:
-                        frontmatter = yaml.safe_load(parts[1])
-                        if frontmatter:
-                            metadata.update(frontmatter)
-                        content = parts[2].strip()
-                except:
-                    pass  # Frontmatter 解析失败，忽略
-
-            # 生成文档 ID
-            doc_id = self._generate_id(str(file_path))
-
-            return Document(
-                id=doc_id,
-                file_path=str(file_path),
-                file_name=file_path.name,
-                content=content,
-                metadata=metadata
-            )
-
-        except Exception as e:
-            print(f"⚠️ 加载文件失败: {file_path} - {e}")
+        """加载单个文件：按扩展名路由解析器，组装文档对象"""
+        parser = self._parsers.get(file_path.suffix.lower())
+        if parser is None:
             return None
+
+        try:
+            parsed = parser.parse_file(file_path)
+        except Exception as e:
+            print(f"⚠️ 解析文件失败: {file_path} - {e}")
+            return None
+
+        content = parsed.content.strip()
+        if not content:
+            return None
+
+        # 构建元数据
+        metadata = {
+            'file_path': str(file_path),
+            'file_name': file_path.name,
+            'file_size': file_path.stat().st_size,
+            'modified_time': datetime.fromtimestamp(file_path.stat().st_mtime).isoformat(),
+            'source_dir': str(file_path.parent),
+            'format': file_path.suffix.lower().lstrip('.'),
+        }
+        if parsed.title:
+            metadata['title'] = parsed.title
+        metadata.update(parsed.metadata)
+
+        # 生成文档 ID
+        doc_id = self._generate_id(str(file_path))
+
+        return Document(
+            id=doc_id,
+            file_path=str(file_path),
+            file_name=file_path.name,
+            content=content,
+            metadata=metadata,
+        )
 
     @staticmethod
     def _generate_id(file_path: str) -> str:

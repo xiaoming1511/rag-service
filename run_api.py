@@ -28,12 +28,14 @@ from src.api.app import create_app
 
 def main():
     """启动 API 服务"""
+    import os
+
     print("=" * 60)
     print("🚀 启动 RAG API 服务")
     print("=" * 60)
 
-    # 1. 加载配置
-    config = config_manager.load("config/settings.yaml")
+    # 1. 加载配置（支持 RAG_CONFIG 环境变量覆盖配置文件路径）
+    config = config_manager.load(os.getenv("RAG_CONFIG", "config/settings.yaml"))
     print("✅ 配置加载成功")
 
     # 2. 初始化所有组件

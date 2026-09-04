@@ -55,6 +55,21 @@ class IndexRefreshResponse(BaseModel):
     message: str
 
 
+class IndexUrlRequest(BaseModel):
+    """网页索引请求"""
+    url: str
+    timeout: Optional[float] = 30.0
+
+
+class IndexUrlResponse(BaseModel):
+    """网页索引响应"""
+    success: bool
+    url: str
+    title: Optional[str] = None
+    chunk_count: int = 0
+    message: str
+
+
 class StatusResponse(BaseModel):
     """状态响应"""
     status: str

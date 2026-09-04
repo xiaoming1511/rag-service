@@ -42,3 +42,8 @@ documents:
   supported_extensions:
     - ".md"
     - ".markdown"
+    - ".pdf"
+    - ".docx"
+    - ".html"
+    - ".htm"
+    - ".txt"

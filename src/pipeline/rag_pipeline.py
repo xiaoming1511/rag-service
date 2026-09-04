@@ -233,6 +233,21 @@ class RAGPipeline:
 
         return index_sync.sync(rebuild=rebuild)
 
+    def index_url(self, url: str, timeout: float = 30.0) -> Dict[str, Any]:
+        """
+        索引远程网页（抓取 → 解析 → 分块 → 嵌入 → 入库）
+
+        Args:
+            url: 网页地址
+            timeout: 抓取超时秒数
+
+        Returns:
+            Dict: 索引结果
+        """
+        if not hasattr(self, 'indexer') or self.indexer is None:
+            return {"error": "Indexer not available"}
+        return self.indexer.index_url(url, timeout=timeout)
+
     # ================================================================
     # 状态统计
     # ================================================================
