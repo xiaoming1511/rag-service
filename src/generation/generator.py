@@ -6,6 +6,7 @@
 from typing import List, Dict, Any, Optional, Generator, AsyncGenerator
 
 from src.embedding.client import OMLXClient
+from src.generation.model_router import ModelRouter
 
 
 class Generator:
@@ -22,13 +23,14 @@ class Generator:
         max_history_rounds: int = 10,
         history_token_budget: int = 2000,
         rewrite_query: bool = False,
+        model_router: Optional[ModelRouter] = None,
     ):
         """
         初始化生成服务
 
         Args:
             client: oMLX 客户端
-            model: 聊天模型名称
+            model: 聊天模型名称（默认模型）
             max_tokens: 最大输出 token 数
             temperature: 温度参数
             stream: 是否启用流式输出
@@ -37,6 +39,8 @@ class Generator:
             history_token_budget: 历史 token 预算，超出从旧到新裁剪
             rewrite_query: 是否启用追问改写（决策 D5）：
                 检索前用模型把追问改写为独立问句，默认关闭
+            model_router: 模型路由（模型路由）：让不同任务使用不同模型；
+                None 时所有任务使用 model
         """
         self.client = client
         self.model = model
@@ -46,6 +50,7 @@ class Generator:
         self.max_history_rounds = max_history_rounds
         self.history_token_budget = history_token_budget
         self.rewrite_query = rewrite_query
+        self.model_router = model_router
 
         # 默认系统提示词
         self.default_system_prompt = (
@@ -56,6 +61,24 @@ class Generator:
             "使用中文回答。"
         )
         self.system_prompt = system_prompt or self.default_system_prompt
+
+    # ================================================================
+    # 模型路由
+    # ================================================================
+
+    def model_for(self, task: str = "chat") -> str:
+        """
+        按任务解析应使用的模型（模型路由）
+
+        Args:
+            task: chat / rewrite / research_subqueries；未配置回退默认模型
+
+        Returns:
+            str: 模型名
+        """
+        if self.model_router is not None:
+            return self.model_router.resolve(task)
+        return self.model
 
     # ================================================================
     # 同步
@@ -83,7 +106,7 @@ class Generator:
         messages = self._build_messages(query, context, history)
 
         params = {
-            "model": self.model,
+            "model": kwargs.pop("model", self.model_for("chat")),
             "messages": messages,
             "max_tokens": kwargs.get("max_tokens", self.max_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
@@ -113,7 +136,7 @@ class Generator:
         messages = self._build_messages(query, context, history)
 
         params = {
-            "model": self.model,
+            "model": kwargs.pop("model", self.model_for("chat")),
             "messages": messages,
             "max_tokens": kwargs.get("max_tokens", self.max_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
@@ -161,7 +184,7 @@ class Generator:
         messages = self._build_messages(query, context, history)
 
         params = {
-            "model": self.model,
+            "model": kwargs.pop("model", self.model_for("chat")),
             "messages": messages,
             "max_tokens": kwargs.get("max_tokens", self.max_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
@@ -194,7 +217,7 @@ class Generator:
         messages = self._build_messages(query, context, history)
 
         params = {
-            "model": self.model,
+            "model": kwargs.pop("model", self.model_for("chat")),
             "messages": messages,
             "max_tokens": kwargs.get("max_tokens", self.max_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
@@ -238,7 +261,7 @@ class Generator:
         ]
         try:
             rewritten = self.client.chat_sync(
-                model=self.model,
+                model=self.model_for("rewrite"),
                 messages=messages,
                 max_tokens=80,
                 temperature=0.0,
@@ -265,7 +288,7 @@ class Generator:
         ]
         try:
             rewritten = await self.client.chat_async(
-                model=self.model,
+                model=self.model_for("rewrite"),
                 messages=messages,
                 max_tokens=80,
                 temperature=0.0,

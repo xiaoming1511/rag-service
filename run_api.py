@@ -5,8 +5,6 @@ RAG API 服务启动脚本
 
 import os
 import sys
-import threading
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -85,6 +83,10 @@ def main():
         similarity_threshold=config.retrieval.similarity_threshold,
     )
 
+    # 生成器（模型路由：chat/rewrite/research_subqueries 可分别配置模型）
+    from src.generation.model_router import ModelRouter
+
+    model_router = ModelRouter(config.omlx.chat_model, config.routing.model_dump())
     generator = Generator(
         client=client,
         model=config.omlx.chat_model,
@@ -94,6 +96,7 @@ def main():
         max_history_rounds=config.generation.max_history_rounds,
         history_token_budget=config.generation.history_token_budget,
         rewrite_query=config.generation.rewrite_query,
+        model_router=model_router,
     )
 
     indexer = Indexer(
@@ -129,6 +132,7 @@ def main():
     )
     pipeline.indexer = indexer
     pipeline.vector_store = vector_store
+    pipeline.model_router = model_router  # 供 /v1/config 热更新路由
 
     # 增量索引：共享同一同步器（/v1/index/refresh 与自动监听复用清单）
     from src.pipeline.index_sync import IndexSync
@@ -153,28 +157,9 @@ def main():
     ingest_queue = IngestQueue(run_fn=run_index_job, store_path="./data/index_jobs.json")
     pipeline.ingest_queue = ingest_queue
 
-    # AI 知识层生成器（Karpathy LLM Wiki 补齐：来源摘要/概念/实体页 + 互链 + 图谱）
-    from src.wikibuilder.builder import WikiBuilder
-
-    wiki_dir = config.wiki.dir
-    if not wiki_dir and config.documents.source_dirs:
-        wiki_dir = str(Path(config.documents.source_dirs[0]).expanduser().resolve() / "wiki")
-    wiki_builder = WikiBuilder(
-        loader=loader,
-        generator=generator,
-        wiki_dir=wiki_dir,
-        enabled=config.wiki.enabled,
-    )
-    pipeline.wiki_builder = wiki_builder
-
     def on_vault_change():
-        """文件变化回调：增量同步 + 自动串联知识层生成"""
+        """文件变化回调：增量同步（xu/wiki 由外部 LLM Wiki 管理，本系统不处理）"""
         index_sync.sync()
-        if wiki_builder.enabled:
-            try:
-                wiki_builder.build_pending(force=False)
-            except Exception as e:
-                print(f"⚠️ 知识层自动生成失败: {e}")
 
     watcher = IndexWatcher(
         source_dirs=config.documents.source_dirs,
@@ -209,22 +194,6 @@ def main():
     # 启动增量索引自动监听（守护线程）与摄入队列 worker（惰性启动）
     watcher.start()
     ingest_queue._ensure_worker()
-
-    # 周期维护：定时补齐知识层（配置 maintain_interval_min > 0 时启用）
-    maintain_thread = None
-    if config.wiki.maintain_interval_min > 0 and wiki_builder.enabled:
-
-        def maintenance_loop():
-            print(f"🕐 知识层周期维护已启动（每 {config.wiki.maintain_interval_min} 分钟）")
-            while True:
-                time.sleep(config.wiki.maintain_interval_min * 60)
-                try:
-                    wiki_builder.build_pending(force=False)
-                except Exception as e:
-                    print(f"⚠️ 周期维护失败: {e}")
-
-        maintain_thread = threading.Thread(target=maintenance_loop, daemon=True)
-        maintain_thread.start()
 
     try:
         uvicorn.run(

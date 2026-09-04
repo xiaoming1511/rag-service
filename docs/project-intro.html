@@ -105,18 +105,18 @@
   <ul>
     <li><b>问答沉淀 syntheses</b>：每次问答写为 vault 根 <code>syntheses/</code> 的 .md（含 frontmatter+来源），会被再次检索 → 知识记忆循环</li>
     <li><b>Deep Research 简版</b>：问题 → LLM 拆 3-5 子查询 → 并行检索合并 → 带引用汇总报告（<code>/v1/research</code>）</li>
-    <li><b>AI 知识层生成 wiki-builder</b>：为每篇文档生成来源摘要页 + 自动建/更新概念页、实体页，<code>[[互链]]</code>，维护 <code>index.md</code>/<code>log.md</code>（写入既有 <code>xu/wiki/</code>；增量同步后自动串联，可关）</li>
-    <li><b>周期维护</b>：定时补齐知识层（<code>wiki.maintain_interval_min</code>，默认关）</li>
+    <li><b>模型路由</b>：chat / rewrite / research_subqueries 三个任务可分别配置模型（空 = 跟随默认聊天模型），简单任务用小模型提速、复杂任务用强模型保质量</li>
+    <li><b>AI 知识层</b>：<span class="badge b-mut">外部管理</span> xu/wiki 由 LLM Wiki 负责，本系统不涉及该目录（2026-09-04 确认）</li>
   </ul>
 </div>
 
 <h3>2.4 对外界面与工具 <span class="badge b-ok">✅</span></h3>
 <div class="panel">
   <ul>
-    <li><b>Obsidian 原生插件</b>（TypeScript）：侧边栏聊天（SSE 流式+多轮）、<b>引用点击跳转打开笔记</b>（含标题锚点定位）、状态栏、设置面板、命令面板、自动索引（保存防抖+定时兜底）</li>
+    <li><b>Obsidian 原生插件</b>（TypeScript）：侧边栏聊天（SSE 流式+多轮）、<b>引用点击跳转打开笔记</b>（含标题锚点定位）、状态栏、命令面板、自动索引（保存防抖+定时兜底）；设置面板含「服务端配置」区：严格模式/重排序/阈值/响应缓存/沉淀/追问改写/历史/模型路由，经 /v1/config 热生效</li>
     <li><b>Web 聊天页</b>：<span class="badge b-mut">已删除（2026-09-04 用户确认）</span> — 查询统一走 Obsidian 插件</li>
     <li><b>CLI</b>：<span class="badge b-mut">已删除（2026-09-04 用户确认）</span> — 统一走 Obsidian 插件 + API</li>
-    <li><b>REST API</b>：/v1/query、/v1/query/stream、/v1/index、/v1/index/refresh、/v1/index/url、/v1/index/async、/v1/index/jobs、/v1/research、/v1/wiki/build、/v1/health、/v1/status</li>
+    <li><b>REST API</b>：/v1/query、/v1/query/stream、/v1/index、/v1/index/refresh、/v1/index/url、/v1/index/async、/v1/index/jobs、/v1/research、/v1/config (GET/POST)、/v1/health、/v1/status</li>
     <li><b>质量保障</b>：91 项自动化测试、Git 版本管理、中文注释、设计文档（docs/optimization-plan.md）</li>
   </ul>
 </div>
@@ -158,7 +158,7 @@
       <td>无需单独开发导图，建议依赖 Obsidian 原生</td>
     </tr>
   </table>
-  <div class="note">2026-09-04 已完成删除（用户逐项确认）：Web 聊天页（含网页图谱可视化）、CLI（index/query/stats/watch）、/v1/graph 数据接口与 graph.json 生成逻辑。当前仅 /v1/wiki/build 保留知识层生成；图谱展示交给 Obsidian Graph View。</div>
+  <div class="note">2026-09-04 已完成删除（用户逐项确认）：Web 聊天页（含网页图谱可视化）、CLI、/v1/graph 数据接口与 graph.json、AI 知识层生成 wiki-builder（xu/wiki 交由外部 LLM Wiki 管理，本系统不处理该目录）。</div>
 </div>
 
 <!-- ======================= 四、功能差异 ======================= -->
@@ -170,7 +170,7 @@
     <tr><th>维度</th><th>传统 RAG</th><th>本系统</th></tr>
     <tr><td>索引更新</td><td>全量重建</td><td>增量三态同步 + 自动监听 + 荣耀队列</td></tr>
     <tr><td>格式</td><td>多为 Markdown/PDF</td><td>7 种格式 + URL 抓取（解析器注册表可扩展）</td></tr>
-    <tr><td>输出</td><td>单一回答</td><td>严格模式 / 多轮 / 沉淀 / 深度研究 / 知识层生成 多级输出</td></tr>
+    <tr><td>输出</td><td>单一回答</td><td>严格模式 / 多轮 / 沉淀 / 深度研究 多级输出</td></tr>
     <tr><td>接入</td><td>API + 简单前端</td><td>Obsidian 原生插件 + 11 个 REST 端点</td></tr>
     <tr><td>运维</td><td>—</td><td>队列持久化、缓存分层、响应缓存、91 项测试</td></tr>
   </table>
@@ -207,12 +207,12 @@
   <div class="todo-item"><b>① 多模态（图片）检索</b>：PDF 内嵌图片提取 + vision 模型配图文/图搜（对齐 LLM Wiki 多模态）</div>
   <div class="todo-item"><b>② MCP Server</b>：把 /v1/query、/v1/research 等包装成 MCP 工具，Claude/Cursor/Codex 直接读你的知识库（最贴合"可编程/可集成"定位）</div>
   <div class="todo-item"><b>③ 项目导出/导入</b>：知识库归档（manifest+向量+知识层）打包迁移、从页面重建索引</div>
-  <div class="todo-item"><b>④ 模型路由</b>：生成/摄入/摘要/改写分离配置模型与 provider（对齐 LLM Wiki 的 Chat/Ingest 分离）</div>
+  <div class="todo-item"><b>④ 模型路由 + 配置 API</b>：<span class="badge b-ok">已实现（2026-09-04）</span> chat/rewrite/research_subqueries 分离配置 + GET/POST /v1/config 热生效 + 插件设置面板控制；<s>生成/摄入/摘要/改写分离</s>（本系统不再生成知识层）</div>
   <div class="todo-item"><b>⑤ 会话管理</b>：Web/插件多会话、会话命名与持久化、历史查看/删除</div>
   <div class="todo-item"><b>⑥ 行级引文高亮</b>：插件内打开笔记时高亮答案命中的段落（当前为标题锚点级）</div>
   <div class="todo-item"><b>⑦ 递归多轮 Deep Research</b>：每轮汇总后再追问，直到信息饱和（当前为单层）</div>
   <div class="todo-item"><b>⑧ 浏览器网页剪辑扩展</b>：一键剪辑网页+高亮入 vault（Obsidian 已有 URL 插入，若插件路线可省略）</div>
-  <div class="todo-item"><b>⑨ 知识层参与检索（决策项）</b>：当前 wiki 目录被排除检索；若希望问答也读 LLM Wiki 生成的知识层产物，可放开排除（需你确认）</div>
+  <div class="todo-item"><b>⑨ 知识层（已定案）</b>：xu/wiki 由外部 LLM Wiki 管理，本系统不处理该目录（加载器继续排除 wiki）；如需问答检索到知识层，仍可后续放开（需你再次确认）</div>
   <div class="todo-item"><b>⑩ CI 与发布</b>：GitHub Actions 跑测试、插件自动构建、pip 打包</div>
 </div>
 
@@ -235,9 +235,10 @@
     <tr><td>POST /v1/index · /v1/index/refresh</td><td>全量索引 · 增量索引</td></tr>
     <tr><td>POST /v1/index/url</td><td>网页抓取索引</td></tr>
     <tr><td>POST /v1/index/async · GET /v1/index/jobs[/{id}] · POST /jobs/{id}/cancel</td><td>后台摄入队列（持久化、进度、取消）</td></tr>
-    <tr><td>GET /v1/wiki/build</td><td>AI 知识层生成（来源摘要/概念/实体 + 互链）</td></tr>
+    <tr><td>GET /v1/config</td><td>读取当前可调配置（供插件设置面板加载）</td></tr>
+    <tr><td>POST /v1/config</td><td>更新配置：校验 → 写回 settings.yaml → 热生效（检索/生成/沉淀/缓存/路由字段即时生效）</td></tr>
   </table>
-  <div class="note">图谱数据接口已删除（2026-09-04）；知识层生成保留在 POST /v1/wiki/build。</div>
+  <div class="note">图谱数据接口与 wiki-builder 已删除（2026-09-04）；配置管理通过 GET/POST /v1/config（插件设置面板可直接控制）。</div>
 </div>
 
 <!-- ======================= 七、使用入口 ======================= -->

@@ -43,6 +43,20 @@ class SynthesesConfig(BaseModel):
     dir: str = ""  # 沉淀目录；空 = 自动（source_dirs[0]/syntheses，会被加载器索引）
 
 
+class RoutingConfig(BaseModel):
+    """
+    模型路由配置（模型路由：让不同任务使用不同模型）
+
+    空值（""）= 跟随默认聊天模型（omlx.chat_model）。
+    - chat:               问答生成
+    - rewrite:            多轮追问改写
+    - research_subqueries: Deep Research 子查询拆解
+    """
+    chat: str = ""
+    rewrite: str = ""
+    research_subqueries: str = ""
+
+
 class GenerationConfig(BaseModel):
     """生成配置"""
     max_tokens: int = 512
@@ -73,13 +87,6 @@ class PerformanceConfig(BaseModel):
     response_cache_ttl: int = 3600      # 响应缓存有效期（秒）
 
 
-class WikiConfig(BaseModel):
-    """AI 知识层配置（Karpathy LLM Wiki 补齐）"""
-    enabled: bool = True              # 增量同步后自动串联知识层生成
-    dir: str = ""                     # 知识层目录；空 = 自动（source_dirs[0]/wiki）
-    maintain_interval_min: int = 0    # 周期维护间隔（分钟）；0 = 关闭
-
-
 class AppConfig(BaseModel):
     """应用总配置"""
     omlx: OMLXConfig = Field(default_factory=OMLXConfig)
@@ -90,7 +97,7 @@ class AppConfig(BaseModel):
     documents: DocumentsConfig = Field(default_factory=DocumentsConfig)
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
     syntheses: SynthesesConfig = Field(default_factory=SynthesesConfig)
-    wiki: WikiConfig = Field(default_factory=WikiConfig)
+    routing: RoutingConfig = Field(default_factory=RoutingConfig)
 
 
 class ConfigManager:
@@ -98,6 +105,7 @@ class ConfigManager:
 
     _instance: Optional["ConfigManager"] = None
     _config: Optional[AppConfig] = None
+    _config_path: Optional[Path] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -127,7 +135,34 @@ class ConfigManager:
             raw_config["omlx"]["chat_model"] = os.getenv("OMLX_CHAT_MODEL")
 
         self._config = AppConfig(**raw_config)
+        self._config_path = config_file
         return self._config
+
+    def replace(self, new_config: AppConfig) -> AppConfig:
+        """整体替换内存配置（供 /v1/config 热更新使用，需再调用 save() 持久化）"""
+        self._config = new_config
+        return self._config
+
+    def save(self, path: Optional[str] = None) -> Path:
+        """
+        把当前配置写回 YAML 文件
+
+        Args:
+            path: 目标路径；默认写回加载时的配置文件
+
+        Returns:
+            Path: 写入的文件路径
+
+        Note:
+            写回会丢失原文件的注释（程序生成的规范化 YAML）
+        """
+        target = Path(path) if path else self._config_path
+        if target is None or self._config is None:
+            raise RuntimeError("尚未加载配置，无法保存")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "w", encoding="utf-8") as f:
+            yaml.safe_dump(self._config.model_dump(), f, allow_unicode=True, sort_keys=False)
+        return target
 
     @property
     def config(self) -> AppConfig:

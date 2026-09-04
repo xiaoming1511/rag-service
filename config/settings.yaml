@@ -23,7 +23,7 @@ retrieval:
   rerank_top_k: 3        # 重排序后保留数量
   enable_rerank: true    # 是否启用重排序
   similarity_threshold: 0.5
-  strict_sources: false  # 严格来源模式：检索为空时不调用模型，直接告知未找到（默认关）
+  strict_sources: false  # 严格来源模式：检索为空时不调用模型（默认关；可经 /v1/config 或插件面板热开启）
 
 # 生成配置
 generation:
@@ -66,8 +66,8 @@ syntheses:
   enabled: true          # 每次问答写为 vault 根 syntheses/ 下的 .md（可被再次检索）
   dir: ""                # 空 = 自动（source_dirs[0]/syntheses）
 
-# AI 知识层配置（Karpathy LLM Wiki 补齐：来源摘要/概念/实体页 + 互链）
-wiki:
-  enabled: true                       # 增量同步后自动串联知识层生成
-  dir: "/Users/xuhuaming/projects/obsidian/xu/wiki"  # 写入既有 Karpathy 结构目录
-  maintain_interval_min: 0            # 周期维护间隔（分钟）；0 = 关闭
+# 模型路由配置（模型路由：让不同任务使用不同模型；空 = 跟随默认聊天模型）
+routing:
+  chat: ""                       # 问答生成（空 = qwen3.5-4b-mlx-4bit）
+  rewrite: ""                    # 多轮追问改写（空 = chat）
+  research_subqueries: ""        # Deep Research 子查询拆解（空 = chat）

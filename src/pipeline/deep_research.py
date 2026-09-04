@@ -80,8 +80,13 @@ class DeepResearch:
             {"role": "user", "content": f"研究问题：{question}"},
         ]
         try:
+            # 模型路由：research_subqueries 任务；兼容无 model_for 的桩生成器
+            if hasattr(self.generator, "model_for"):
+                model = self.generator.model_for("research_subqueries")
+            else:
+                model = getattr(self.generator, "model", None)
             raw = client.chat_sync(
-                model=self.generator.model,
+                model=model,
                 messages=messages,
                 max_tokens=200,
                 temperature=0.3,

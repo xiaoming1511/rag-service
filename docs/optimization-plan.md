@@ -25,6 +25,8 @@
 > **评审补全（LLM Wiki 对照，第二期）**：R1a ✅（严格来源模式 / 问答沉淀 syntheses/vault 根 / 后台摄入队列 单worker+持久化+jobs 端点）｜R1b ✅（EPUB/PPTX 解析 + Deep Research 简版 POST /v1/research）｜R2 ✅（AI 知识层生成 wiki-builder 写入既有 xu/wiki + 周期维护 + 知识图谱 /v1/graph + 网页力导向）。实机：知识层 6 摘要页+33 概念+15 实体，图谱 98 节点/116 边。测试共 **91 项**。
 >
 > **冗余删除（2026-09-04，用户逐项确认）**：① Web 聊天页（web/ 移除，根路径重定向 /docs，查询统一走 Obsidian 插件）② CLI（cli/ 移除，无人依赖）③ 知识图谱数据层（/v1/graph 路由 + graph.json 生成逻辑移除；wiki-builder 保留页面生成与互链，图谱展示交给 Obsidian Graph View）。测试 **90 项**。
+>
+> **第三期（2026-09-04）**：① 移除 AI 知识层生成 wiki-builder（模块/端点/自动串联/周期维护；**xu/wiki 交由外部 LLM Wiki 管理，本系统不处理该目录**，loader 继续排除 wiki）② 新增配置管理 GET/POST `/v1/config`（校验→写回 settings.yaml→热生效；检索/生成/沉淀/缓存/路由字段即时生效）③ **模型路由**：chat / rewrite / research_subqueries 三任务可分别配置模型（ModelRouter，空值回退默认聊天模型；含热更新与 API/插件控制）④ Obsidian 插件设置面板新增「服务端配置」区（严格模式/重排序/阈值/响应缓存/沉淀/追问改写/历史/模型路由 → /v1/config 热生效）。测试 **94 项**。
 
 ---
 

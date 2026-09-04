@@ -84,6 +84,18 @@ export class RAGApiClient {
     return this.postJson("/index/refresh", {});
   }
 
+  /** 读取服务端配置（GET /v1/config） */
+  async getServerConfig(): Promise<any> {
+    const resp = await fetch(this.url("/config"), { headers: { Authorization: `Bearer ${this.apiKey}` } });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return resp.json();
+  }
+
+  /** 更新服务端配置（POST /v1/config，热生效 + 写回配置文件） */
+  async saveServerConfig(patch: Record<string, any>): Promise<any> {
+    return this.postJson("/config", patch);
+  }
+
   /**
    * 流式问答（SSE）
    * @param question 问题
