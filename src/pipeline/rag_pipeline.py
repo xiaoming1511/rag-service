@@ -362,6 +362,25 @@ class RAGPipeline:
             return {"error": "Indexer not available"}
         return self.indexer.index_url(url, timeout=timeout)
 
+    def research(
+            self,
+            question: str,
+            sub_queries: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Deep Research 简版：子查询 → 并行检索 → 汇总报告
+
+        Args:
+            question: 研究问题
+            sub_queries: 自定义子查询列表（None 则用 LLM 生成）
+
+        Returns:
+            Dict: report / sub_queries / sources / total_results
+        """
+        from src.pipeline.deep_research import DeepResearch
+        dr = DeepResearch(retriever=self.retriever, generator=self.generator)
+        return dr.research(question, sub_queries)
+
     # ================================================================
     # 状态统计
     # ================================================================

@@ -58,6 +58,8 @@ documents:
     - ".html"
     - ".htm"
     - ".txt"
+    - ".epub"
+    - ".pptx"
 
 # 问答沉淀配置（syntheses）
 syntheses:

@@ -98,6 +98,20 @@ class JobListResponse(BaseModel):
     total: int
 
 
+class ResearchRequest(BaseModel):
+    """深度研究请求"""
+    question: str
+    sub_queries: Optional[List[str]] = None
+
+
+class ResearchResponse(BaseModel):
+    """深度研究响应"""
+    report: str
+    sub_queries: List[str]
+    sources: List[SourceInfo]
+    total_results: int
+
+
 class StatusResponse(BaseModel):
     """状态响应"""
     status: str

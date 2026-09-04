@@ -201,3 +201,78 @@ def test_index_url(http_server, tmp_path):
     # 重复索引应跳过
     result2 = indexer.index_url(f"{http_server}/page")
     assert result2.get("skipped") is True
+
+
+# ================================================================
+# EPUB / PPTX 解析（自造样例）
+# ================================================================
+
+def _make_epub(path: Path, title: str = "测试电子书"):
+    """用 ebooklib 生成最小 EPUB"""
+    from ebooklib import epub
+
+    book = epub.EpubBook()
+    book.set_identifier("test-epub-001")
+    book.set_title(title)
+    book.set_language("zh")
+    book.add_author("测试作者")
+
+    chap = epub.EpubHtml(title="第一章", file_name="chap1.xhtml", lang="zh")
+    chap.content = "<h1>第一章</h1><p>这是 EPUB 电子书的正文内容，用于验证解析。</p>"
+    book.add_item(chap)
+    book.toc = (chap,)
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = ["nav", chap]
+
+    epub.write_epub(str(path), book)
+
+
+def _make_pptx(path: Path):
+    """用 python-pptx 生成最小 PPTX"""
+    from pptx import Presentation
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "演示文稿标题"
+    slide.placeholders[1].text = "这是 PPT 的正文要点。"
+
+    table_slide = prs.slides.add_slide(prs.slide_layouts[6])
+    table = table_slide.shapes.add_table(2, 2, 72, 72, 200, 80).table
+    table.cell(0, 0).text = "主题"
+    table.cell(0, 1).text = "说明"
+    table.cell(1, 0).text = "性能"
+    table.cell(1, 1).text = "优化后提升明显"
+
+    prs.save(str(path))
+
+
+def test_load_epub(sample_vault):
+    """EPUB 解析：章节正文与标题元数据"""
+    epub_path = sample_vault.parent / "book.epub"
+    _make_epub(epub_path)
+
+    loader = DocumentLoader(source_dirs=[str(sample_vault.parent)])
+    docs = {d.file_name: d for d in loader.load()}
+
+    book = docs.get("book.epub")
+    assert book is not None
+    assert "这是 EPUB 电子书的正文内容" in book.content
+    assert book.metadata.get("title") == "测试电子书"
+    assert book.metadata.get("format") == "epub"
+
+
+def test_load_pptx(sample_vault):
+    """PPTX 解析：文本框与表格内容"""
+    pptx_path = sample_vault.parent / "slides.pptx"
+    _make_pptx(pptx_path)
+
+    loader = DocumentLoader(source_dirs=[str(sample_vault.parent)])
+    docs = {d.file_name: d for d in loader.load()}
+
+    slides = docs.get("slides.pptx")
+    assert slides is not None
+    assert "演示文稿标题" in slides.content
+    assert "这是 PPT 的正文要点" in slides.content
+    assert "优化后提升明显" in slides.content  # 表格内容
+    assert slides.metadata.get("format") == "pptx"
