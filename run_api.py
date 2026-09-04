@@ -12,8 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import uvicorn
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse
 
 from src.config import config_manager
 from src.document.loader import DocumentLoader
@@ -193,23 +192,19 @@ def main():
     # ========== 创建应用 ==========
     app = create_app(pipeline)
 
-    # 挂载静态文件目录
-    web_dir = Path(__file__).parent / "web"
-    if web_dir.exists():
-        app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
-
-        @app.get("/")
-        async def serve_index():
-            """提供聊天界面"""
-            return FileResponse(str(web_dir / "index.html"))
+    # 根路径 → 跳转到 API 文档（Web 聊天页已移除，查询统一走 Obsidian 插件）
+    @app.get("/")
+    async def serve_root():
+        """根路径重定向到 API 文档"""
+        return RedirectResponse(url="/docs")
 
     print("\n" + "=" * 60)
     print("🌐 API 服务已启动")
     print("   - API 文档: http://127.0.0.1:8080/docs")
-    print("   - 聊天界面: http://127.0.0.1:8080")
     print("   - 健康检查: http://127.0.0.1:8080/v1/health")
     print("   - 增量索引: POST /v1/index/refresh")
     print("   - 后台摄入: POST /v1/index/async · GET /v1/index/jobs")
+    print("   - 查询入口: Obsidian 插件「RAG 聊天面板」（Web 页已移除）")
     print("=" * 60)
 
     # 启动增量索引自动监听（守护线程）与摄入队列 worker（惰性启动）

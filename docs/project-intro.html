@@ -114,7 +114,7 @@
 <div class="panel">
   <ul>
     <li><b>Obsidian 原生插件</b>（TypeScript）：侧边栏聊天（SSE 流式+多轮）、<b>引用点击跳转打开笔记</b>（含标题锚点定位）、状态栏、设置面板、命令面板、自动索引（保存防抖+定时兜底）</li>
-    <li><b>Web 聊天页</b>：浏览器流式聊天 + "🕸 图谱"按钮（<span class="flag">见冗余标识</span>）</li>
+    <li><b>Web 聊天页</b>：<span class="badge b-mut">已删除（2026-09-04 用户确认）</span> — 查询统一走 Obsidian 插件</li>
     <li><b>CLI</b>：<code>index</code> / <code>query</code> / <code>stats</code> / <code>watch</code></li>
     <li><b>REST API</b>：/v1/query、/v1/query/stream、/v1/index、/v1/index/refresh、/v1/index/url、/v1/index/async、/v1/index/jobs、/v1/research、/v1/wiki/build、/v1/graph、/v1/health、/v1/status</li>
     <li><b>质量保障</b>：91 项自动化测试、Git 版本管理、中文注释、设计文档（docs/optimization-plan.md）</li>
@@ -130,35 +130,35 @@
     <tr>
       <td><b>网页端知识图谱可视化</b>（'🕸 图谱'按钮）</td>
       <td>Obsidian 自带 Graph View（图视图）</td>
-      <td><span class="badge b-red">🔴 高冗余</span> Obsidian 图视图原生支持图谱交互，网页里再做一份 SVG 力导向价值有限</td>
-      <td><b>删除网页可视化</b>；图谱数据若无人消费则一并评估（见下行）</td>
+      <td><span class="badge b-mut">已删除</span> 随 Web 聊天页一起删除（2026-09-04 用户确认）；Obsidian 图视图原生覆盖</td>
+      <td>无需操作</td>
     </tr>
     <tr>
       <td><b>/v1/graph 数据接口 + graph.json</b></td>
       <td>同上；也是 LLM Wiki 生态（llm-wiki-agent 等）标配的 graph 模块</td>
-      <td><span class="badge b-red">🔴 中冗余</span> 若不做程序化图谱消费（如 MCP/自定义可视化），该接口无人调用</td>
-      <td><b>二选一</b>：①保留接口（契合"可编程"定位）②删除接口与 graph.json，仅保留 wiki-builder 内部生成</td>
+      <td><span class="badge b-red">🔴 中冗余</span> 网页可视化已删，该接口<b>暂无消费方</b>；仅当未来做程序化图谱消费（如 MCP）时有价值</td>
+      <td><b>二选一待你确认：</b>①保留接口与 graph.json ②删除接口与生成逻辑（wiki-builder 不再写图）</td>
     </tr>
     <tr>
       <td><b>Web 聊天页</b>（web/index.html）</td>
       <td>Obsidian 插件聊天面板</td>
-      <td><span class="badge b-yel">🟡 部分重叠</span> 功能一致；浏览器入口对非 Obsidian 场景仍有价值</td>
-      <td>可保留作轻量入口，或删除（插件已覆盖）</td>
+      <td><span class="badge b-mut">已删除</span> 2026-09-04 用户确认：查询仅通过 Obsidian 插件调用</td>
+      <td>已删除（web/ 目录移除，/ 重定向到 /docs）</td>
     </tr>
     <tr>
-      <td><b>CLI watch 命令</b></td>
+      <td><b>CLI watch 命令</b>（含整个 CLI）</td>
       <td>服务内置 watchdog 自动监听</td>
-      <td><span class="badge b-yel">🟡 功能重叠</span> 仅调试/前台运行场景有用，维护成本低</td>
-      <td>可保留作调试工具，亦可删除</td>
+      <td><span class="badge b-yel">🟡 功能重叠/待确认</span> CLI 为独立便捷工具，<b>无任何模块依赖它</b>（见 #2 问答）</td>
+      <td>可保留作调试工具，亦可整体删除（待你确认）</td>
     </tr>
     <tr>
       <td><b>知识导图（备注）</b></td>
       <td>Obsidian canvas / Graph View</td>
-      <td><span class="badge b-mut">说明</span> 本系统<u>没有独立的"知识导图"功能</u>；网页图谱即其可视化形态，同上处理</td>
+      <td><span class="badge b-mut">说明</span> 本系统<u>没有独立的"知识导图"功能</u>；网页图谱即其可视化形态，已随 Web 页删除</td>
       <td>无需单独开发导图，建议依赖 Obsidian 原生</td>
     </tr>
   </table>
-  <div class="note">判定原则：<b>凡 Obsidian 原生已能完成、且与本系统"能力层"定位无关的展示型功能 → 标记冗余</b>；凡参与"检索-生成-沉淀-接口"数据主链路的 → 保留。</div>
+  <div class="note">已执行删除：Web 聊天页（含网页图谱可视化），2026-09-04。待你确认：#2 CLI 去留、#3 /v1/graph 接口与 graph.json 去留。</div>
 </div>
 
 <!-- ======================= 四、功能差异 ======================= -->
@@ -248,7 +248,8 @@
     <li>启动服务：<code>python run_api.py</code>（默认 http://127.0.0.1:8080，文档 /docs）</li>
     <li>命令行：<code>python cli/main.py {index|query|stats|watch}</code></li>
     <li>Obsidian 插件：已安装至 <code>~/projects/obsidian/.obsidian/plugins/rag-service/</code>，启用后命令面板 "打开 RAG 聊天面板"</li>
-    <li>Web：浏览器打开 http://127.0.0.1:8080</li>
+    <li>Obsidian 插件：已安装至 <code>~/projects/obsidian/.obsidian/plugins/rag-service/</code>，启用后命令面板 "打开 RAG 聊天面板"（查询唯一入口）</li>
+    <li>API 文档：http://127.0.0.1:8080/docs（根路径 / 自动重定向）</li>
     <li>配置：config/settings.yaml（模型/阈值/严格模式/沉淀/性能/wiki）</li>
   </ul>
 </div>
