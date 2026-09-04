@@ -345,7 +345,39 @@ class RAGPipeline:
             index_sync = IndexSync(self.indexer, manifest_path=None)
             self._index_sync = index_sync
 
-        return index_sync.sync(rebuild=rebuild)
+        result = index_sync.sync(rebuild=rebuild)
+
+        # 增量同步后自动串联知识层生成（wiki-builder，配置可关）
+        builder = getattr(self, 'wiki_builder', None)
+        if builder is not None and builder.enabled and (result.get("added") or result.get("updated")):
+            try:
+                builder.build_pending(force=False)
+            except Exception as e:
+                print(f"⚠️ 知识层生成失败: {e}")
+
+        return result
+
+    def build_wiki(self, force: bool = False) -> Dict[str, Any]:
+        """
+        手动触发知识层生成（全文摘要/概念/实体页面 + 互链 + 图谱重建）
+
+        Args:
+            force: True 时强制重建所有页面（覆盖已有）
+
+        Returns:
+            Dict: 构建统计
+        """
+        builder = getattr(self, 'wiki_builder', None)
+        if builder is None or not builder.enabled:
+            return {"error": "wiki-builder 未初始化或未启用"}
+        return builder.build_pending(force=force)
+
+    def get_graph(self) -> Dict[str, Any]:
+        """读取知识图谱数据（供 /v1/graph 可视化）"""
+        builder = getattr(self, 'wiki_builder', None)
+        if builder is None:
+            return {"nodes": [], "edges": []}
+        return builder.load_graph()
 
     def index_url(self, url: str, timeout: float = 30.0) -> Dict[str, Any]:
         """

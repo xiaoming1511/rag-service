@@ -68,7 +68,8 @@
             gap: 8px;
         }
 
-        #clear-btn {
+        #clear-btn,
+        #graph-btn {
             font-size: 12px;
             color: #9ca3af;
             background: #2d2d44;
@@ -78,9 +79,35 @@
             cursor: pointer;
         }
 
-        #clear-btn:hover {
+        #clear-btn:hover,
+        #graph-btn:hover {
             color: #f87171;
             background: #3a1a1a;
+        }
+
+        /* ===== 知识图谱 ===== */
+        #graph-container {
+            flex: 1;
+            overflow: hidden;
+            background: #23233a;
+            border-radius: 12px;
+            margin-top: 10px;
+            position: relative;
+            display: none;
+        }
+
+        #graph-container svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        #graph-container .graph-loading {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #9ca3af;
         }
 
         /* ===== 聊天容器 ===== */
@@ -420,6 +447,7 @@
     <div class="header">
         <h1>🧠 RAG AI 助手</h1>
         <div class="header-right">
+            <button id="graph-btn" title="知识图谱">🕸 图谱</button>
             <button id="clear-btn" title="清空对话">🗑 清空</button>
             <span class="status offline" id="status">● 检测中...</span>
         </div>
@@ -433,6 +461,9 @@
             <small>基于你的 Obsidian 知识库 · 支持流式输出</small>
         </div>
     </div>
+
+    <!-- ===== 知识图谱区域（简易力导向，无外部依赖） ===== -->
+    <div id="graph-container"></div>
 
     <!-- ===== 输入区域 ===== -->
     <div class="input-area">
@@ -763,6 +794,123 @@
             chatContainer.appendChild(ph);
             input.focus();
         });
+
+        // ============================================================
+        //  知识图谱（简易力导向，纯 SVG 无依赖）
+        // ============================================================
+        const graphContainer = document.getElementById('graph-container');
+        let graphOpen = false;
+
+        document.getElementById('graph-btn').addEventListener('click', () => {
+            graphOpen = !graphOpen;
+            graphContainer.style.display = graphOpen ? 'block' : 'none';
+            if (graphOpen) loadGraph();
+        });
+
+        async function loadGraph() {
+            graphContainer.innerHTML = '<div class="graph-loading">加载图谱...</div>';
+            try {
+                const resp = await fetch(`${API_BASE}/graph`);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+                renderGraph(data.nodes || [], data.edges || []);
+            } catch (e) {
+                graphContainer.innerHTML = `<div class="graph-loading">❌ 图谱加载失败: ${e.message}<br>（请先运行一次知识层生成 POST /v1/wiki/build）</div>`;
+            }
+        }
+
+        function renderGraph(nodes, edges) {
+            if (nodes.length === 0) {
+                graphContainer.innerHTML = '<div class="graph-loading">图谱为空 — 请先运行知识层生成（POST /v1/wiki/build）</div>';
+                return;
+            }
+            const W = graphContainer.clientWidth || 600;
+            const H = graphContainer.clientHeight || 400;
+
+            // 初始化位置（圆环分布）
+            const pos = {};
+            nodes.forEach((n, i) => {
+                const angle = (2 * Math.PI * i) / nodes.length;
+                pos[n.id] = {
+                    x: W / 2 + (W / 3) * Math.cos(angle),
+                    y: H / 2 + (H / 3) * Math.sin(angle),
+                    vx: 0, vy: 0,
+                };
+            });
+
+            // 简易力导向迭代（斥力 + 弹簧）
+            const k = 0.12;       // 弹簧系数
+            const rep = 6000;     // 斥力强度
+            for (let iter = 0; iter < 220; iter++) {
+                // 斥力
+                for (let i = 0; i < nodes.length; i++) {
+                    for (let j = i + 1; j < nodes.length; j++) {
+                        const a = pos[nodes[i].id], b = pos[nodes[j].id];
+                        let dx = a.x - b.x, dy = a.y - b.y;
+                        let d2 = dx * dx + dy * dy || 1;
+                        let f = rep / d2;
+                        let dl = Math.sqrt(d2);
+                        dx /= dl; dy /= dl;
+                        a.vx += dx * f; a.vy += dy * f;
+                        b.vx -= dx * f; b.vy -= dy * f;
+                    }
+                }
+                // 弹簧（edges 相连的节点互相吸引）
+                for (const e of edges) {
+                    const a = pos[e.source], b = pos[e.target];
+                    if (!a || !b) continue;
+                    const dx = b.x - a.x, dy = b.y - a.y;
+                    const dl = Math.sqrt(dx * dx + dy * dy) || 1;
+                    const f = k * (dl - 60);
+                    a.vx += (dx / dl) * f; a.vy += (dy / dl) * f;
+                    b.vx -= (dx / dl) * f; b.vy -= (dy / dl) * f;
+                }
+                // 更新位置
+                for (const n of nodes) {
+                    const p = pos[n.id];
+                    p.vx *= 0.85; p.vy *= 0.85;  // 阻尼
+                    p.x = Math.min(W - 30, Math.max(30, p.x + p.vx));
+                    p.y = Math.min(H - 30, Math.max(30, p.y + p.vy));
+                }
+            }
+
+            // 渲染 SVG
+            const colorMap = { sources: '#60a5fa', concepts: '#34d399', entities: '#fbbf24' };
+            const svgNS = 'http://www.w3.org/2000/svg';
+            const svg = document.createElementNS(svgNS, 'svg');
+            svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+            for (const e of edges) {
+                const a = pos[e.source], b = pos[e.target];
+                if (!a || !b) continue;
+                const line = document.createElementNS(svgNS, 'line');
+                line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+                line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+                line.setAttribute('stroke', '#4b4b6b');
+                line.setAttribute('stroke-width', '1');
+                svg.appendChild(line);
+            }
+            for (const n of nodes) {
+                const p = pos[n.id];
+                const g = document.createElementNS(svgNS, 'g');
+                g.setAttribute('transform', `translate(${p.x},${p.y})`);
+                const circle = document.createElementNS(svgNS, 'circle');
+                circle.setAttribute('r', n.type === 'sources' ? 11 : 8);
+                circle.setAttribute('fill', colorMap[n.type] || '#9ca3af');
+                g.appendChild(circle);
+                const text = document.createElementNS(svgNS, 'text');
+                text.setAttribute('text-anchor', 'middle');
+                text.setAttribute('dy', '22');
+                text.setAttribute('fill', '#d1d5db');
+                text.setAttribute('font-size', '11');
+                text.textContent = n.label.length > 14 ? n.label.slice(0, 13) + '…' : n.label;
+                g.appendChild(text);
+                g.appendChild(circle.cloneNode());
+                svg.appendChild(g);
+            }
+            graphContainer.innerHTML = '';
+            graphContainer.appendChild(svg);
+        }
 
         // ============================================================
         //  健康检查

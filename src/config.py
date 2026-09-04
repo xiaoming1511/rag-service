@@ -73,6 +73,14 @@ class PerformanceConfig(BaseModel):
     response_cache_ttl: int = 3600      # 响应缓存有效期（秒）
 
 
+class WikiConfig(BaseModel):
+    """AI 知识层与图谱配置（Karpathy LLM Wiki 补齐）"""
+    enabled: bool = True              # 增量同步后自动串联知识层生成
+    dir: str = ""                     # 知识层目录；空 = 自动（source_dirs[0]/wiki）
+    maintain_interval_min: int = 0    # 周期维护间隔（分钟）；0 = 关闭
+    graph_path: str = "./data/wiki_graph.json"  # 知识图谱数据文件
+
+
 class AppConfig(BaseModel):
     """应用总配置"""
     omlx: OMLXConfig = Field(default_factory=OMLXConfig)
@@ -83,6 +91,7 @@ class AppConfig(BaseModel):
     documents: DocumentsConfig = Field(default_factory=DocumentsConfig)
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
     syntheses: SynthesesConfig = Field(default_factory=SynthesesConfig)
+    wiki: WikiConfig = Field(default_factory=WikiConfig)
 
 
 class ConfigManager:

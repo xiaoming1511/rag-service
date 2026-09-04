@@ -65,3 +65,10 @@ documents:
 syntheses:
   enabled: true          # 每次问答写为 vault 根 syntheses/ 下的 .md（可被再次检索）
   dir: ""                # 空 = 自动（source_dirs[0]/syntheses）
+
+# AI 知识层配置（Karpathy LLM Wiki 补齐：来源摘要/概念/实体页 + 互链 + 图谱）
+wiki:
+  enabled: true                       # 增量同步后自动串联知识层生成
+  dir: "/Users/xuhuaming/projects/obsidian/xu/wiki"  # 写入既有 Karpathy 结构目录
+  maintain_interval_min: 0            # 周期维护间隔（分钟）；0 = 关闭
+  graph_path: "./data/wiki_graph.json"  # 知识图谱数据文件（GET /v1/graph）

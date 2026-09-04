@@ -3,7 +3,10 @@
 RAG API 服务启动脚本
 """
 
+import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -28,8 +31,6 @@ from src.api.app import create_app
 
 def main():
     """启动 API 服务"""
-    import os
-
     print("=" * 60)
     print("🚀 启动 RAG API 服务")
     print("=" * 60)
@@ -153,9 +154,33 @@ def main():
     ingest_queue = IngestQueue(run_fn=run_index_job, store_path="./data/index_jobs.json")
     pipeline.ingest_queue = ingest_queue
 
+    # AI 知识层生成器（Karpathy LLM Wiki 补齐：来源摘要/概念/实体页 + 互链 + 图谱）
+    from src.wikibuilder.builder import WikiBuilder
+
+    wiki_dir = config.wiki.dir
+    if not wiki_dir and config.documents.source_dirs:
+        wiki_dir = str(Path(config.documents.source_dirs[0]).expanduser().resolve() / "wiki")
+    wiki_builder = WikiBuilder(
+        loader=loader,
+        generator=generator,
+        wiki_dir=wiki_dir,
+        graph_path=config.wiki.graph_path,
+        enabled=config.wiki.enabled,
+    )
+    pipeline.wiki_builder = wiki_builder
+
+    def on_vault_change():
+        """文件变化回调：增量同步 + 自动串联知识层生成"""
+        index_sync.sync()
+        if wiki_builder.enabled:
+            try:
+                wiki_builder.build_pending(force=False)
+            except Exception as e:
+                print(f"⚠️ 知识层自动生成失败: {e}")
+
     watcher = IndexWatcher(
         source_dirs=config.documents.source_dirs,
-        on_change=lambda: index_sync.sync(),
+        on_change=on_vault_change,
     )
 
     print("✅ Pipeline 初始化完成")
@@ -190,6 +215,22 @@ def main():
     # 启动增量索引自动监听（守护线程）与摄入队列 worker（惰性启动）
     watcher.start()
     ingest_queue._ensure_worker()
+
+    # 周期维护：定时补齐知识层（配置 maintain_interval_min > 0 时启用）
+    maintain_thread = None
+    if config.wiki.maintain_interval_min > 0 and wiki_builder.enabled:
+
+        def maintenance_loop():
+            print(f"🕐 知识层周期维护已启动（每 {config.wiki.maintain_interval_min} 分钟）")
+            while True:
+                time.sleep(config.wiki.maintain_interval_min * 60)
+                try:
+                    wiki_builder.build_pending(force=False)
+                except Exception as e:
+                    print(f"⚠️ 周期维护失败: {e}")
+
+        maintain_thread = threading.Thread(target=maintenance_loop, daemon=True)
+        maintain_thread.start()
 
     try:
         uvicorn.run(
