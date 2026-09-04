@@ -12,6 +12,9 @@ beautifulsoup4>=4.12     # HTML 清理（可选）
 fastapi>=0.100.0
 uvicorn>=0.23.0
 
+# 增量索引文件监听
+watchdog>=4.0.0
+
 # 工具
 tqdm>=4.66               # 进度条
 python-dotenv>=1.0.0     # 环境变量

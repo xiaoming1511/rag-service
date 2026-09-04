@@ -81,3 +81,13 @@ class BaseVectorStore(ABC):
     def get(self, ids: List[str]) -> List[Dict[str, Any]]:
         """根据 ID 获取文档"""
         pass
+
+    @abstractmethod
+    def get_by_doc_id(self, doc_id: str) -> List[Dict[str, Any]]:
+        """根据文档 ID（doc_id 元数据）查询该文档的全部块"""
+        pass
+
+    @abstractmethod
+    def delete_by_doc_id(self, doc_id: str) -> None:
+        """删除某文档（doc_id 元数据）的全部块，用于文档变更/删除时的增量清理"""
+        pass

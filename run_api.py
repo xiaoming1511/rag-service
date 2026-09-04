@@ -106,6 +106,18 @@ def main():
     pipeline.indexer = indexer
     pipeline.vector_store = vector_store
 
+    # 增量索引：共享同一同步器（/v1/index/refresh 与自动监听复用清单）
+    from src.pipeline.index_sync import IndexSync
+    from src.pipeline.watcher import IndexWatcher
+
+    index_sync = IndexSync(indexer, manifest_path="./data/index_manifest.json")
+    pipeline._index_sync = index_sync
+
+    watcher = IndexWatcher(
+        source_dirs=config.documents.source_dirs,
+        on_change=lambda: index_sync.sync(),
+    )
+
     print("✅ Pipeline 初始化完成")
 
     stats = vector_store.get_stats()
@@ -131,14 +143,21 @@ def main():
     print("   - API 文档: http://127.0.0.1:8080/docs")
     print("   - 聊天界面: http://127.0.0.1:8080")
     print("   - 健康检查: http://127.0.0.1:8080/v1/health")
+    print("   - 增量索引: POST /v1/index/refresh")
     print("=" * 60)
 
-    uvicorn.run(
-        app,
-        host="127.0.0.1",
-        port=8080,
-        log_level="info",
-    )
+    # 启动增量索引自动监听（守护线程）
+    watcher.start()
+
+    try:
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=8080,
+            log_level="info",
+        )
+    finally:
+        watcher.stop()
 
 
 if __name__ == "__main__":

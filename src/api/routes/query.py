@@ -46,6 +46,8 @@ async def query(request: QueryRequest) -> Dict[str, Any]:
             "sources": [
                 SourceInfo(
                     file_name=s["file_name"],
+                    file_path=s.get("file_path") or None,
+                    heading=s.get("heading") or None,
                     content=s["content"],
                     score=s["score"],
                 )

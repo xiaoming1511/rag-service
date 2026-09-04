@@ -220,6 +220,72 @@ def cmd_stats(args):
     print(json.dumps(stats, indent=2, ensure_ascii=False))
 
 
+def cmd_watch(args):
+    """
+    监听命令：监听源目录文件变化，自动执行增量同步
+
+    与 run_api.py 内置监听的区别：本命令在前台运行，便于独立调试；
+    Ctrl+C 停止。
+    """
+    import time
+
+    config = load_config()
+    pipeline = build_pipeline()
+
+    # 如果指定了 --dirs，覆盖 loader 的源目录（同步与监听都使用它）
+    if args.dirs:
+        from src.document.loader import DocumentLoader
+        watch_dirs = [d.strip() for d in args.dirs.split(",")]
+        pipeline.indexer.loader = DocumentLoader(
+            source_dirs=watch_dirs,
+            extensions=[".md", ".markdown"],
+        )
+    else:
+        watch_dirs = config.documents.source_dirs
+
+    # 首次同步（可跳过，通过 --no-initial 参数）
+    if not args.no_initial:
+        print("🔍 首次增量同步...")
+        result = pipeline.index_incremental()
+        if result.get("error"):
+            print(f"❌ 同步失败: {result['error']}")
+            sys.exit(1)
+        print(
+            f"✅ 首次同步完成: 新增 {len(result.get('added', []))} | "
+            f"更新 {len(result.get('updated', []))} | "
+            f"删除 {len(result.get('removed', []))} | 未变 {result.get('unchanged', 0)}"
+        )
+
+    def on_change():
+        """文件变化回调：执行增量同步"""
+        result = pipeline.index_incremental()
+        if result.get("error"):
+            print(f"❌ 增量同步失败: {result['error']}")
+            return
+        print(
+            f"♻️ 增量同步: 新增 {len(result.get('added', []))} | "
+            f"更新 {len(result.get('updated', []))} | "
+            f"删除 {len(result.get('removed', []))} | 未变 {result.get('unchanged', 0)}"
+        )
+
+    from src.pipeline.watcher import IndexWatcher
+    watcher = IndexWatcher(
+        source_dirs=watch_dirs,
+        on_change=on_change,
+        debounce=args.debounce,
+    )
+
+    print("👂 开始监听，按 Ctrl+C 停止...")
+    watcher.start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n⏹️ 正在停止监听...")
+        watcher.stop()
+        print("👋 已退出")
+
+
 # ================================================================
 # 主入口
 # ================================================================
@@ -244,6 +310,12 @@ def main():
     # stats 命令
     subparsers.add_parser("stats", help="查看状态")
 
+    # watch 命令（增量索引监听）
+    watch_parser = subparsers.add_parser("watch", help="监听文件变化并自动增量索引")
+    watch_parser.add_argument("--dirs", help="源目录（逗号分隔，默认使用配置）")
+    watch_parser.add_argument("--debounce", type=float, default=2.0, help="事件去抖秒数（默认 2s）")
+    watch_parser.add_argument("--no-initial", action="store_true", help="跳过启动时的首次同步")
+
     args = parser.parse_args()
 
     if args.command == "index":
@@ -255,6 +327,8 @@ def main():
             cmd_query(args)
     elif args.command == "stats":
         cmd_stats(args)
+    elif args.command == "watch":
+        cmd_watch(args)
     else:
         parser.print_help()
 

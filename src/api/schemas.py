@@ -15,10 +15,12 @@ class QueryRequest(BaseModel):
 
 
 class SourceInfo(BaseModel):
-    """来源信息"""
+    """来源信息（file_path/heading 供 Obsidian 插件点击跳转使用，向后兼容保留）"""
     file_name: str
     content: str
     score: float
+    file_path: Optional[str] = None  # 文件绝对路径（插件据此换算 vault 相对路径）
+    heading: Optional[str] = None    # 标题路径锚点（如 "基础语法 > 变量"）
 
 
 class QueryResponse(BaseModel):
@@ -40,6 +42,16 @@ class IndexResponse(BaseModel):
     total_documents: int
     total_chunks: int
     vector_count: int
+    message: str
+
+
+class IndexRefreshResponse(BaseModel):
+    """增量索引响应"""
+    success: bool
+    added: int
+    updated: int
+    removed: int
+    unchanged: int
     message: str
 
 

@@ -160,6 +160,32 @@ class ChromaStore(BaseVectorStore):
 
         return documents
 
+    def get_by_doc_id(self, doc_id: str) -> List[Dict[str, Any]]:
+        """
+        根据文档 ID（doc_id 元数据）查询该文档的全部块
+
+        增量索引中用于判断文档是否已入库、以及变更前定位待删除块。
+        """
+        results = self._collection.get(where={"doc_id": str(doc_id)})
+
+        documents = []
+        ids = results.get('ids') or []
+        for i, cid in enumerate(ids):
+            documents.append({
+                'id': cid,
+                'document': (results.get('documents') or [])[i] if results.get('documents') else "",
+                'metadata': (results.get('metadatas') or [])[i] if results.get('metadatas') else {},
+            })
+        return documents
+
+    def delete_by_doc_id(self, doc_id: str) -> None:
+        """
+        删除某文档（doc_id 元数据）的全部块
+
+        用于文档变更（先删后加）或文件删除时的增量清理。
+        """
+        self._collection.delete(where={"doc_id": str(doc_id)})
+
     def get_stats(self) -> Dict[str, Any]:
         """获取存储统计信息"""
         return {

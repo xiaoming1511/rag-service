@@ -4,7 +4,7 @@
 
 from fastapi import APIRouter, HTTPException
 
-from src.api.schemas import IndexRequest, IndexResponse
+from src.api.schemas import IndexRequest, IndexResponse, IndexRefreshResponse
 
 router = APIRouter(prefix="/v1", tags=["index"])
 
@@ -20,7 +20,7 @@ def set_pipeline(pipeline):
 @router.post("/index", response_model=IndexResponse)
 async def index_documents(request: IndexRequest):
     """
-    索引文档
+    索引文档（全量）
     """
     if _pipeline is None:
         raise HTTPException(status_code=503, detail="Pipeline 未初始化")
@@ -41,6 +41,36 @@ async def index_documents(request: IndexRequest):
             total_chunks=result.get("total_chunks", 0),
             vector_count=result.get("total_vectors", 0),
             message="索引完成",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/index/refresh", response_model=IndexRefreshResponse)
+async def refresh_index():
+    """
+    增量索引：仅处理有变更的文档（新增/修改/删除），避免全量重建
+
+    供外部（Obsidian 插件、脚本等）手动触发增量同步。
+    """
+    if _pipeline is None:
+        raise HTTPException(status_code=503, detail="Pipeline 未初始化")
+
+    try:
+        result = _pipeline.index_incremental()
+
+        if result.get("error"):
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        return IndexRefreshResponse(
+            success=True,
+            added=len(result.get("added", [])),
+            updated=len(result.get("updated", [])),
+            removed=len(result.get("removed", [])),
+            unchanged=result.get("unchanged", 0),
+            message="增量索引完成",
         )
     except HTTPException:
         raise

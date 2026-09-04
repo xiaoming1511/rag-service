@@ -59,6 +59,8 @@ class RAGPipeline:
             "sources": [
                 {
                     "file_name": r.metadata.get("file_name", "unknown"),
+                    "file_path": r.metadata.get("file_path", ""),
+                    "heading": r.metadata.get("heading_path", ""),
                     "content": r.content[:200] + "..." if len(r.content) > 200 else r.content,
                     "score": r.score,
                 }
@@ -98,6 +100,8 @@ class RAGPipeline:
             for r in results[:3]:
                 sources_data.append({
                     "file_name": r.metadata.get("file_name", "unknown"),
+                    "file_path": r.metadata.get("file_path", ""),
+                    "heading": r.metadata.get("heading_path", ""),
                     "content": r.content,
                     "score": r.score,
                 })
@@ -152,6 +156,8 @@ class RAGPipeline:
             for r in results[:3]:
                 sources_data.append({
                     "file_name": r.metadata.get("file_name", "unknown"),
+                    "file_path": r.metadata.get("file_path", ""),
+                    "heading": r.metadata.get("heading_path", ""),
                     "content": r.content,
                     "score": r.score,
                 })
@@ -180,7 +186,7 @@ class RAGPipeline:
             rebuild: bool = False,
     ) -> Dict[str, Any]:
         """
-        索引文档
+        索引文档（全量）
 
         Args:
             source_dirs: 源目录列表
@@ -201,6 +207,30 @@ class RAGPipeline:
             )
 
         return self.indexer.index_all(rebuild=rebuild)
+
+    def index_incremental(self, rebuild: bool = False) -> Dict[str, Any]:
+        """
+        增量索引：仅处理有变更的文档（新增/修改/删除），避免全量重建
+
+        依赖 IndexSync（manifest + 内容哈希三态同步）；
+        若外部已注入 _index_sync 实例（如 run_api.py），则复用同一清单。
+
+        Args:
+            rebuild: 为 True 时清空向量库与清单后全量重建
+
+        Returns:
+            Dict: 增量统计信息 {added, updated, removed, unchanged, skipped}
+        """
+        if not hasattr(self, 'indexer') or self.indexer is None:
+            return {"error": "Indexer not available"}
+
+        index_sync = getattr(self, '_index_sync', None)
+        if index_sync is None:
+            from src.pipeline.index_sync import IndexSync
+            index_sync = IndexSync(self.indexer, manifest_path="./data/index_manifest.json")
+            self._index_sync = index_sync
+
+        return index_sync.sync(rebuild=rebuild)
 
     # ================================================================
     # 状态统计

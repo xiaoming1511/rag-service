@@ -139,6 +139,11 @@ class DocumentLoader:
 
     @staticmethod
     def _generate_id(file_path: str) -> str:
-        """生成文档 ID"""
+        """生成文档 ID（文件路径的 MD5 前 16 位）"""
         import hashlib
         return hashlib.md5(file_path.encode()).hexdigest()[:16]
+
+    @classmethod
+    def doc_id_for(cls, file_path: str) -> str:
+        """为文件路径生成稳定的文档 ID（与 Document.id 保持一致，供增量索引使用）"""
+        return cls._generate_id(file_path)

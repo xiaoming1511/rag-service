@@ -151,8 +151,8 @@ class Indexer:
         if not document:
             return {"success": False, "error": "文档加载失败"}
 
-        # 检查是否已存在
-        existing = self.vector_store.get([document.id])
+        # 检查是否已存在（按 doc_id 元数据查询该文档的全部块）
+        existing = self.vector_store.get_by_doc_id(document.id)
         if existing:
             print(f"⚠️ 文档已存在，跳过: {document.file_name}")
             return {"success": True, "skipped": True}
