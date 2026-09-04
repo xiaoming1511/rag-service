@@ -61,7 +61,6 @@ def setup(tmp_path):
         loader=loader,
         generator=_StubGenerator(),
         wiki_dir=str(tmp_path / "wiki"),
-        graph_path=str(tmp_path / "graph.json"),
         enabled=True,
     )
     return {"docs_dir": docs_dir, "builder": builder, "wiki": tmp_path / "wiki"}
@@ -120,21 +119,6 @@ def test_index_and_log(setup):
 
     log = (setup["wiki"] / "log.md").read_text(encoding="utf-8")
     assert "构建知识层" in log
-
-
-def test_graph_built(setup):
-    """图谱：节点=页面，边=互链"""
-    setup["builder"].build_pending()
-
-    graph = json.loads((setup["wiki"].parent / "graph.json").read_text(encoding="utf-8"))
-    labels = {n["label"]: n for n in graph["nodes"]}
-    assert "Redis 详细指南" in labels
-    assert "概念甲" in labels
-    assert "项目X" in labels
-
-    # 来源页 → 概念页 之间的边（互链）
-    edge_pairs = {(e["source"], e["target"]) for e in graph["edges"]}
-    assert any("Redis 详细指南" in s and "概念甲" in t for s, t in edge_pairs)
 
 
 def test_update_appends_existing_concept(setup):

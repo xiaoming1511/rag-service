@@ -163,7 +163,6 @@ def main():
         loader=loader,
         generator=generator,
         wiki_dir=wiki_dir,
-        graph_path=config.wiki.graph_path,
         enabled=config.wiki.enabled,
     )
     pipeline.wiki_builder = wiki_builder

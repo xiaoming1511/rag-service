@@ -6,15 +6,13 @@ AI 知识层生成器（wiki-builder · Karpathy LLM Wiki 补齐）
 1. 为每篇新文档生成「来源摘要页」（sources/）——LLM 概括并提取关键要点；
 2. 抽取「概念」与「实体」，自动创建/更新对应页面（concepts/ 、entities/），
    并互相 [[链接]]（互链）；
-3. 维护 index.md（全库目录）与 log.md（操作日志）；
-4. 顺带维护知识图谱 graph.json（节点=页面，边=互链/引用关系），供 /v1/graph 可视化。
+3. 维护 index.md（全库目录）与 log.md（操作日志）。
 
-注意：知识层目录（默认 vault 的 wiki/）按约定不参与向量检索，仅供人工查阅与图谱。
+注意：知识层目录（默认 vault 的 wiki/）按约定不参与向量检索，仅供人工查阅。
 """
 
 import json
 import re
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -45,7 +43,6 @@ class WikiBuilder:
             loader: DocumentLoader,
             generator: Generator,
             wiki_dir: str,
-            graph_path: str = "./data/wiki_graph.json",
             enabled: bool = True,
     ):
         """
@@ -55,13 +52,11 @@ class WikiBuilder:
             loader: 文档加载器（用于扫描原始文档）
             generator: 生成器（LLM 调用）
             wiki_dir: 知识层目录（写入 sources/concepts/entities/index/log）
-            graph_path: 知识图谱数据文件路径
             enabled: 是否启用（False 时 build_pending 直接返回空统计）
         """
         self.loader = loader
         self.generator = generator
         self.wiki_dir = Path(wiki_dir)
-        self.graph_path = Path(graph_path)
         self.enabled = enabled
 
     # ================================================================
@@ -102,7 +97,6 @@ class WikiBuilder:
                 f"构建知识层：新增 {len(stats['built'])} / 更新 {len(stats.get('updated', []))} / "
                 f"概念 {stats['concepts']} / 实体 {stats['entities']}"
             )
-        self._build_graph()
         return stats
 
     def build_for_document(self, doc: Document, extra_stats: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -309,71 +303,3 @@ class WikiBuilder:
             log_path.write_text(log_path.read_text(encoding="utf-8").rstrip() + "\n" + line + "\n", encoding="utf-8")
         else:
             self._write_page(log_path, f"# 操作日志\n\n{line}\n")
-
-    def _build_graph(self):
-        """从知识层页面构建图谱（节点=页面，边=[[互链]]/引用）"""
-        nodes: Dict[str, Dict[str, Any]] = {}
-        edges: List[Dict[str, str]] = []
-        seen_edges = set()
-
-        link_pattern = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
-
-        # 第一趟：收集全部节点（先注册完节点，才能解析所有链接）
-        page_files: List[Tuple[str, Path]] = []
-        for folder in ("sources", "concepts", "entities"):
-            folder_path = self.wiki_dir / folder
-            if not folder_path.exists():
-                continue
-            for page in sorted(folder_path.glob("*.md")):
-                node_id = f"{folder}/{page.stem}"
-                nodes[node_id] = {
-                    "id": node_id,
-                    "label": page.stem,
-                    "type": folder,
-                }
-                page_files.append((folder, page))
-
-        # 第二趟：扫描页面里的 [[链接]] 生成边
-        for folder, page in page_files:
-            node_id = f"{folder}/{page.stem}"
-            content = page.read_text(encoding="utf-8", errors="replace")
-            for m in link_pattern.finditer(content):
-                target_name = m.group(1).strip()
-                if not target_name or target_name == page.stem:
-                    continue
-                # 目标节点：概念/实体任一类（取已存在者）
-                target_id = self._resolve_link_target(target_name, nodes)
-                if not target_id:
-                    continue
-                edge = (node_id, target_id)
-                if edge in seen_edges:
-                    continue
-                seen_edges.add(edge)
-                edges.append({"source": node_id, "target": target_id, "type": "link"})
-
-        try:
-            self.graph_path.parent.mkdir(parents=True, exist_ok=True)
-            self.graph_path.write_text(
-                json.dumps({"nodes": list(nodes.values()), "edges": edges},
-                           ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except Exception as e:
-            print(f"⚠️ 图谱写入失败: {e}")
-
-    def _resolve_link_target(self, name: str, nodes: Dict[str, Dict[str, Any]]) -> Optional[str]:
-        """把 [[名称]] 解析为已有节点（concepts/entities 优先，sources 次之）"""
-        for folder in ("concepts", "entities", "sources"):
-            nid = f"{folder}/{name}"
-            if nid in nodes:
-                return nid
-        return None
-
-    def load_graph(self) -> Dict[str, Any]:
-        """读取图谱数据（供 /v1/graph 使用）；不存在返回空图"""
-        if not self.graph_path.exists():
-            return {"nodes": [], "edges": []}
-        try:
-            return json.loads(self.graph_path.read_text(encoding="utf-8"))
-        except Exception:
-            return {"nodes": [], "edges": []}

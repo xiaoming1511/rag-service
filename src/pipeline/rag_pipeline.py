@@ -372,13 +372,6 @@ class RAGPipeline:
             return {"error": "wiki-builder 未初始化或未启用"}
         return builder.build_pending(force=force)
 
-    def get_graph(self) -> Dict[str, Any]:
-        """读取知识图谱数据（供 /v1/graph 可视化）"""
-        builder = getattr(self, 'wiki_builder', None)
-        if builder is None:
-            return {"nodes": [], "edges": []}
-        return builder.load_graph()
-
     def index_url(self, url: str, timeout: float = 30.0) -> Dict[str, Any]:
         """
         索引远程网页（抓取 → 解析 → 分块 → 嵌入 → 入库）

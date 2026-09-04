@@ -70,7 +70,7 @@
   <div class="grid4" style="margin-top:10px">
     <div class="card"><h4>📒 Obsidian 负责"存"</h4><p>笔记、双链、图谱的载体，是你的知识库本体，本系统只读它、不改造它（除你主动开启的沉淀/知识层写入）。</p></div>
     <div class="card"><h4>🧩 LLM Wiki 负责"理"（可选并行）</h4><p>把素材自动整理成结构化 wiki 页面（你 vault 里已有的 xu/wiki 结构）。满足需求时优先用它的产物。</p></div>
-    <div class="card"><h4>⚙️ 本系统负责"用"</h4><p>检索-问答-沉淀-自动化-对外接口。它是一层<b>可编程（REST/CLI）、可集成（Obsidian 原生插件/Web）、可扩展（解析器/向量库/配置抽象）</b>的服务。</p></div>
+    <div class="card"><h4>⚙️ 本系统负责"用"</h4><p>检索-问答-沉淀-自动化-对外接口。它是一层<b>可编程（REST API）、可集成（Obsidian 原生插件）、可扩展（解析器/向量库/配置抽象）</b>的服务。</p></div>
     <div class="card"><h4>🎯 触发条件</h4><p>当 LLM Wiki 无法满足你的个人需求（程序化调用、自定义管道、精确引用跳转、队列/研究/沉淀等）时，由本系统补齐。</p></div>
   </div>
   <div class="note">一句话：<b>知识归 Obsidian 管，知识层归 LLM Wiki 管（可选），知识"使用"归本系统管。</b>三个工具并行互不干扰。</div>
@@ -115,8 +115,8 @@
   <ul>
     <li><b>Obsidian 原生插件</b>（TypeScript）：侧边栏聊天（SSE 流式+多轮）、<b>引用点击跳转打开笔记</b>（含标题锚点定位）、状态栏、设置面板、命令面板、自动索引（保存防抖+定时兜底）</li>
     <li><b>Web 聊天页</b>：<span class="badge b-mut">已删除（2026-09-04 用户确认）</span> — 查询统一走 Obsidian 插件</li>
-    <li><b>CLI</b>：<code>index</code> / <code>query</code> / <code>stats</code> / <code>watch</code></li>
-    <li><b>REST API</b>：/v1/query、/v1/query/stream、/v1/index、/v1/index/refresh、/v1/index/url、/v1/index/async、/v1/index/jobs、/v1/research、/v1/wiki/build、/v1/graph、/v1/health、/v1/status</li>
+    <li><b>CLI</b>：<span class="badge b-mut">已删除（2026-09-04 用户确认）</span> — 统一走 Obsidian 插件 + API</li>
+    <li><b>REST API</b>：/v1/query、/v1/query/stream、/v1/index、/v1/index/refresh、/v1/index/url、/v1/index/async、/v1/index/jobs、/v1/research、/v1/wiki/build、/v1/health、/v1/status</li>
     <li><b>质量保障</b>：91 项自动化测试、Git 版本管理、中文注释、设计文档（docs/optimization-plan.md）</li>
   </ul>
 </div>
@@ -135,9 +135,9 @@
     </tr>
     <tr>
       <td><b>/v1/graph 数据接口 + graph.json</b></td>
-      <td>同上；也是 LLM Wiki 生态（llm-wiki-agent 等）标配的 graph 模块</td>
-      <td><span class="badge b-red">🔴 中冗余</span> 网页可视化已删，该接口<b>暂无消费方</b>；仅当未来做程序化图谱消费（如 MCP）时有价值</td>
-      <td><b>二选一待你确认：</b>①保留接口与 graph.json ②删除接口与生成逻辑（wiki-builder 不再写图）</td>
+      <td>Obsidian Graph View；LLM Wiki 生态标配 graph 模块</td>
+      <td><span class="badge b-mut">已删除</span> 2026-09-04 用户确认：网页可视化已删、无消费方，图谱数据层（接口+生成逻辑）一并删除</td>
+      <td>已删除；Obsidian Graph View 继续负责图谱展示</td>
     </tr>
     <tr>
       <td><b>Web 聊天页</b>（web/index.html）</td>
@@ -146,10 +146,10 @@
       <td>已删除（web/ 目录移除，/ 重定向到 /docs）</td>
     </tr>
     <tr>
-      <td><b>CLI watch 命令</b>（含整个 CLI）</td>
-      <td>服务内置 watchdog 自动监听</td>
-      <td><span class="badge b-yel">🟡 功能重叠/待确认</span> CLI 为独立便捷工具，<b>无任何模块依赖它</b>（见 #2 问答）</td>
-      <td>可保留作调试工具，亦可整体删除（待你确认）</td>
+      <td><b>CLI（index/query/stats/watch）</b></td>
+      <td>服务端 API + Obsidian 插件已覆盖全部 CLI 能力</td>
+      <td><span class="badge b-mut">已删除</span> 2026-09-04 用户确认：无任何模块依赖，符合"单一入口"原则</td>
+      <td>已删除（cli/ 目录移除）</td>
     </tr>
     <tr>
       <td><b>知识导图（备注）</b></td>
@@ -158,7 +158,7 @@
       <td>无需单独开发导图，建议依赖 Obsidian 原生</td>
     </tr>
   </table>
-  <div class="note">已执行删除：Web 聊天页（含网页图谱可视化），2026-09-04。待你确认：#2 CLI 去留、#3 /v1/graph 接口与 graph.json 去留。</div>
+  <div class="note">2026-09-04 已完成删除（用户逐项确认）：Web 聊天页（含网页图谱可视化）、CLI（index/query/stats/watch）、/v1/graph 数据接口与 graph.json 生成逻辑。当前仅 /v1/wiki/build 保留知识层生成；图谱展示交给 Obsidian Graph View。</div>
 </div>
 
 <!-- ======================= 四、功能差异 ======================= -->
@@ -171,7 +171,7 @@
     <tr><td>索引更新</td><td>全量重建</td><td>增量三态同步 + 自动监听 + 荣耀队列</td></tr>
     <tr><td>格式</td><td>多为 Markdown/PDF</td><td>7 种格式 + URL 抓取（解析器注册表可扩展）</td></tr>
     <tr><td>输出</td><td>单一回答</td><td>严格模式 / 多轮 / 沉淀 / 深度研究 / 知识层生成 多级输出</td></tr>
-    <tr><td>接入</td><td>API + 简单前端</td><td>Obsidian 原生插件 + Web + CLI + 12 个 REST 端点</td></tr>
+    <tr><td>接入</td><td>API + 简单前端</td><td>Obsidian 原生插件 + 11 个 REST 端点</td></tr>
     <tr><td>运维</td><td>—</td><td>队列持久化、缓存分层、响应缓存、91 项测试</td></tr>
   </table>
 </div>
@@ -182,9 +182,9 @@
     <tr><th>维度</th><th>LLM Wiki</th><th>本系统</th><th>互补关系</th></tr>
     <tr><td>核心工作</td><td>LLM<b>写</b>知识（生成式）：整理来源/概念/实体页</td><td>LLM<b>读</b>知识（检索式）：问答/沉淀/研究</td><td>LLM Wiki 产出"知识层"，本系统消费/使用它</td></tr>
     <tr><td>驱动方式</td><td>Agent/编辑器插件/夜间 routine</td><td>常驻服务 + API + 插件 + 监听</td><td>本系统可程序化触发，更适合"个人管道"</td></tr>
-    <tr><td>图谱</td><td>标配（graph.json + vis.js）</td><td>有（本文件标识为冗余待确认）</td><td>重叠 → 按你审阅决定</td></tr>
+    <tr><td>图谱</td><td>标配（graph.json + vis.js）</td><td>已删除（2026-09-04），交由 Obsidian Graph View</td><td>本系统不重复图谱</td></tr>
     <tr><td>检索/问答</td><td>较弱（重内容生成）</td><td>强（重排/严格模式/缓存/多轮）</td><td>LLM Wiki 缺的部分正是本系统强项</td></tr>
-    <tr><td>可编程性</td><td>多为技能/插件，接口分散</td><td>统一 REST + CLI，可直接被脚本/外部程序调用</td><td>本系统是"集成底座"</td></tr>
+    <tr><td>可编程性</td><td>多为技能/插件，接口分散</td><td>统一 REST API，可直接被脚本/外部程序调用</td><td>本系统是"集成底座"</td></tr>
     <tr><td>并行使用</td><td>输出到 vault（如 xu/wiki）</td><td>默认不检索 wiki 目录（用户确认），互不干扰</td><td>可并行：LLM Wiki 维护知识层，本系统做问答/自动化</td></tr>
   </table>
 </div>
@@ -223,7 +223,7 @@
     <span><b>语言/框架</b> Python 3.13 · FastAPI · ChromaDB · OpenAI SDK(Async) · watchdog · PyMuPDF · python-docx · ebooklib · python-pptx</span>
     <span><b>模型</b> oMLX 本地：Qwen3.5-4B(chat) · bge-m3(embed) · bge-reranker-v2-m3(rerank)</span>
     <span><b>目录</b> src/（api·pipeline·document·embedding·retrieval·generation·vector_store·cache·wikibuilder）· cli/ · web/ · obsidian-plugin/</span>
-    <span><b>数据</b> data/chroma_db（向量）· data/index_manifest（清单）· data/index_jobs（队列）· data/wiki_graph（图谱）</span>
+    <span><b>数据</b> data/chroma_db（向量）· data/index_manifest（清单）· data/index_jobs（队列）</span>
     <span><b>测试</b> 91 项（pytest + pytest-asyncio；离线桩 + 实机）</span>
   </div>
   <h3 style="margin-top:14px">REST 端点清单</h3>
@@ -235,10 +235,9 @@
     <tr><td>POST /v1/index · /v1/index/refresh</td><td>全量索引 · 增量索引</td></tr>
     <tr><td>POST /v1/index/url</td><td>网页抓取索引</td></tr>
     <tr><td>POST /v1/index/async · GET /v1/index/jobs[/{id}] · POST /jobs/{id}/cancel</td><td>后台摄入队列（持久化、进度、取消）</td></tr>
-    <tr><td>POST /v1/wiki/build</td><td>AI 知识层生成（来源摘要/概念/实体+互链+图谱）<span class="badge b-yel">🟡 图谱输出部分待确认</span></td></tr>
-    <tr><td>GET /v1/graph</td><td>知识图谱数据 <span class="badge b-red">🔴 冗余待确认</span></td></tr>
+    <tr><td>GET /v1/wiki/build</td><td>AI 知识层生成（来源摘要/概念/实体 + 互链）</td></tr>
   </table>
-  <div class="note">端点中标注 🔴/🟡 的即为本文件第三节标记的冗余候选，删除时同步删除对应路由。</div>
+  <div class="note">图谱数据接口已删除（2026-09-04）；知识层生成保留在 POST /v1/wiki/build。</div>
 </div>
 
 <!-- ======================= 七、使用入口 ======================= -->
@@ -246,15 +245,13 @@
 <div class="panel">
   <ul>
     <li>启动服务：<code>python run_api.py</code>（默认 http://127.0.0.1:8080，文档 /docs）</li>
-    <li>命令行：<code>python cli/main.py {index|query|stats|watch}</code></li>
-    <li>Obsidian 插件：已安装至 <code>~/projects/obsidian/.obsidian/plugins/rag-service/</code>，启用后命令面板 "打开 RAG 聊天面板"</li>
     <li>Obsidian 插件：已安装至 <code>~/projects/obsidian/.obsidian/plugins/rag-service/</code>，启用后命令面板 "打开 RAG 聊天面板"（查询唯一入口）</li>
     <li>API 文档：http://127.0.0.1:8080/docs（根路径 / 自动重定向）</li>
     <li>配置：config/settings.yaml（模型/阈值/严格模式/沉淀/性能/wiki）</li>
   </ul>
 </div>
 
-<div class="footer">本文件为项目自述文档 · 冗余标识（🔴/🟡）待你审阅确认后删除对应功能 · 相关设计见 docs/optimization-plan.md</div>
+<div class="footer">本文件为项目自述文档 · 冗余项已于 2026-09-04 按用户确认删除（Web 页/CLI/图谱数据层） · 相关设计见 docs/optimization-plan.md</div>
 
 </body>
 </html>

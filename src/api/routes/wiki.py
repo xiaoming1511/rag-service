@@ -1,5 +1,5 @@
 """
-知识层与图谱路由
+知识层路由
 """
 
 from typing import Any, Dict
@@ -20,7 +20,7 @@ def set_pipeline(pipeline):
 @router.post("/wiki/build")
 async def build_wiki(force: bool = False) -> Dict[str, Any]:
     """
-    手动触发知识层生成：来源摘要页 / 概念页 / 实体页 + 互链 + 图谱重建
+    手动触发知识层生成：来源摘要页 / 概念页 / 实体页 + 互链
 
     Args:
         force: True 时强制重建所有页面
@@ -36,13 +36,3 @@ async def build_wiki(force: bool = False) -> Dict[str, Any]:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/graph")
-async def get_graph() -> Dict[str, Any]:
-    """
-    知识图谱：节点=知识层页面（sources/concepts/entities），边=[[互链]]/引用
-    """
-    if _pipeline is None:
-        raise HTTPException(status_code=503, detail="Pipeline 未初始化")
-    return _pipeline.get_graph()
