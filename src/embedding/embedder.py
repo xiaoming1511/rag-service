@@ -5,6 +5,7 @@
 
 import hashlib
 import json
+from collections import OrderedDict
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
@@ -19,7 +20,8 @@ class Embedder:
             client: OMLXClient,
             model: str,
             cache_enabled: bool = True,
-            cache_dir: str = "./data/cache/embeddings"
+            cache_dir: str = "./data/cache/embeddings",
+            mem_cache_capacity: int = 4096,
     ):
         """
         初始化嵌入服务
@@ -27,12 +29,18 @@ class Embedder:
         Args:
             client: oMLX 客户端
             model: 嵌入模型名称
-            cache_enabled: 是否启用缓存
-            cache_dir: 缓存目录
+            cache_enabled: 是否启用缓存（磁盘 + 内存）
+            cache_dir: 磁盘缓存目录
+            mem_cache_capacity: 内存 LRU 缓存容量（决策 D7）；
+                0 表示不启用内存缓存
         """
         self.client = client
         self.model = model
         self.cache_enabled = cache_enabled
+
+        # 内存 LRU 缓存（命中免磁盘 I/O）
+        self.mem_cache_capacity = max(0, mem_cache_capacity)
+        self._mem_cache: "OrderedDict[str, List[float]]" = OrderedDict()
 
         if cache_enabled:
             self.cache_dir = Path(cache_dir)
@@ -150,24 +158,44 @@ class Embedder:
         return hashlib.md5(text.encode('utf-8')).hexdigest()
 
     def _get_cache(self, text: str) -> Optional[List[float]]:
-        """从缓存获取向量，未命中返回 None"""
+        """从缓存获取向量（内存 LRU 优先，其次磁盘），未命中返回 None"""
         cache_key = self._get_cache_key(text)
-        cache_file = self.cache_dir / f"{cache_key}.json"
 
+        # 1. 内存缓存（决策 D7：免磁盘 I/O）
+        if self.mem_cache_capacity > 0:
+            mem = self._mem_cache.get(cache_key)
+            if mem is not None:
+                self._mem_cache.move_to_end(cache_key)
+                return list(mem)  # 返回副本，避免调用方改动缓存
+
+        # 2. 磁盘缓存
+        cache_file = self.cache_dir / f"{cache_key}.json"
         if cache_file.exists():
             try:
                 with open(cache_file, 'r') as f:
                     data = json.load(f)
-                return data['embedding']
+                embedding = data['embedding']
+                self._mem_put(cache_key, embedding)
+                return embedding
             except Exception:
                 return None
         return None
 
-    def _save_cache(self, text: str, embedding: List[float]):
-        """保存向量到缓存（写入失败不影响主流程）"""
-        cache_key = self._get_cache_key(text)
-        cache_file = self.cache_dir / f"{cache_key}.json"
+    def _mem_put(self, key: str, embedding: List[float]):
+        """写入内存 LRU 缓存（超出容量淘汰最久未用的键）"""
+        if self.mem_cache_capacity <= 0:
+            return
+        self._mem_cache[key] = embedding
+        self._mem_cache.move_to_end(key)
+        while len(self._mem_cache) > self.mem_cache_capacity:
+            self._mem_cache.popitem(last=False)
 
+    def _save_cache(self, text: str, embedding: List[float]):
+        """保存向量：写入内存与磁盘缓存（写入失败不影响主流程）"""
+        cache_key = self._get_cache_key(text)
+        self._mem_put(cache_key, embedding)
+
+        cache_file = self.cache_dir / f"{cache_key}.json"
         try:
             with open(cache_file, 'w') as f:
                 json.dump({

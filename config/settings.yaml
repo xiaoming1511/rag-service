@@ -38,6 +38,13 @@ vector_store:
   collection_name: "knowledge_base"
   persist_directory: "./data/chroma_db"
 
+# 性能优化配置
+performance:
+  embed_cache_capacity: 4096   # 嵌入内存 LRU 缓存容量（0 关闭）
+  index_max_workers: 0         # 索引并行分块线程数（0 自动，1 串行）
+  response_cache: true         # 相同问题响应缓存开关（仅非流式、单轮查询）
+  response_cache_ttl: 3600     # 响应缓存有效期（秒）
+
 # 文档源配置
 documents:
   source_dirs:

@@ -58,6 +58,14 @@ class DocumentsConfig(BaseModel):
     supported_extensions: List[str] = Field(default_factory=lambda: [".md", ".markdown"])
 
 
+class PerformanceConfig(BaseModel):
+    """性能优化配置（决策 D7）"""
+    embed_cache_capacity: int = 4096    # 嵌入内存 LRU 缓存容量（0 关闭）
+    index_max_workers: int = 0          # 索引并行分块线程数（0 自动，1 串行）
+    response_cache: bool = True         # 相同问题响应缓存开关
+    response_cache_ttl: int = 3600      # 响应缓存有效期（秒）
+
+
 class AppConfig(BaseModel):
     """应用总配置"""
     omlx: OMLXConfig = Field(default_factory=OMLXConfig)
@@ -66,6 +74,7 @@ class AppConfig(BaseModel):
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
     vector_store: VectorStoreConfig = Field(default_factory=VectorStoreConfig)
     documents: DocumentsConfig = Field(default_factory=DocumentsConfig)
+    performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
 
 
 class ConfigManager:

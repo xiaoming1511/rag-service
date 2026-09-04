@@ -51,6 +51,7 @@ def main():
         client=client,
         model=config.omlx.embedding_model,
         cache_enabled=True,
+        mem_cache_capacity=config.performance.embed_cache_capacity,
     )
 
     vector_store = ChromaStore(
@@ -100,13 +101,21 @@ def main():
         chunker=chunker,
         embedder=embedder,
         vector_store=vector_store,
+        max_workers=config.performance.index_max_workers or None,
     )
+
+    from src.cache.response_cache import ResponseCache
+    from src.pipeline.rag_pipeline import RAGPipeline
 
     pipeline = RAGPipeline(
         retriever=retriever,
         generator=generator,
         max_context_length=2000,
         include_sources=True,
+        response_cache=ResponseCache(
+            enabled=config.performance.response_cache,
+            ttl=config.performance.response_cache_ttl,
+        ),
     )
     pipeline.indexer = indexer
     pipeline.vector_store = vector_store

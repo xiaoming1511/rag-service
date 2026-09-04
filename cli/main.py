@@ -52,6 +52,7 @@ def build_pipeline() -> RAGPipeline:
         client=client,
         model=config.omlx.embedding_model,
         cache_enabled=True,
+        mem_cache_capacity=config.performance.embed_cache_capacity,
     )
 
     # 向量存储
@@ -104,14 +105,20 @@ def build_pipeline() -> RAGPipeline:
         chunker=chunker,
         embedder=embedder,
         vector_store=vector_store,
+        max_workers=config.performance.index_max_workers or None,
     )
 
-    # 组装 Pipeline
+    # 组装 Pipeline（响应缓存来自性能配置）
+    from src.cache.response_cache import ResponseCache
     pipeline = RAGPipeline(
         retriever=retriever,
         generator=generator,
         max_context_length=2000,
         include_sources=True,
+        response_cache=ResponseCache(
+            enabled=config.performance.response_cache,
+            ttl=config.performance.response_cache_ttl,
+        ),
     )
     pipeline.indexer = indexer
     pipeline.vector_store = vector_store

@@ -23,11 +23,14 @@ class RAGPipeline:
             generator: Generator,
             max_context_length: int = 2000,
             include_sources: bool = True,
+            response_cache: Optional[Any] = None,
     ):
         self.retriever = retriever
         self.generator = generator
         self.max_context_length = max_context_length
         self.include_sources = include_sources
+        # 相同问题响应缓存（决策 D7）；None 表示不启用
+        self.response_cache = response_cache
 
     # ================================================================
     # 同步查询
@@ -45,6 +48,30 @@ class RAGPipeline:
         if self.generator.rewrite_query and history:
             question = self.generator.rewrite_question(question, history)
 
+        # 响应缓存（决策 D7）：仅对无历史的单轮查询生效
+        if self.response_cache is not None and not history:
+            from src.cache.response_cache import ResponseCache
+            cache_key = ResponseCache.make_key(question, top_k, use_rerank)
+            cached = self.response_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        result = self._query_inner(question, history, top_k, use_rerank)
+
+        # 写入缓存
+        if self.response_cache is not None and not history:
+            self.response_cache.put(cache_key, result)
+
+        return result
+
+    def _query_inner(
+            self,
+            question: str,
+            history: Optional[List[Dict[str, str]]],
+            top_k: Optional[int],
+            use_rerank: bool,
+    ) -> Dict[str, Any]:
+        """实际执行检索与生成（供同步查询与响应缓存复用）"""
         context, results = self.retriever.retrieve_with_context(
             query=question,
             top_k=top_k,

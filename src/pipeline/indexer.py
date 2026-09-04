@@ -1,11 +1,13 @@
 """
 索引服务
-负责文档的加载、分块、向量化和存储
+负责文档的加载、分块、向量化和存储（支持并行分块，决策 D7）
 """
 
+import concurrent.futures
+import hashlib
+import os
 from typing import List, Optional, Dict, Any
 from pathlib import Path
-import hashlib
 from datetime import datetime
 
 from src.document.loader import DocumentLoader, Document
@@ -24,6 +26,7 @@ class Indexer:
             embedder: Embedder,
             vector_store: BaseVectorStore,
             collection_name: str = "knowledge_base",
+            max_workers: Optional[int] = None,
     ):
         """
         初始化索引服务
@@ -34,17 +37,21 @@ class Indexer:
             embedder: 嵌入服务
             vector_store: 向量存储
             collection_name: 集合名称
+            max_workers: 并行分块的线程数；None 表示自动
+                （默认 = min(4, CPU 核数)），1 表示不并行
         """
         self.loader = loader
         self.chunker = chunker
         self.embedder = embedder
         self.vector_store = vector_store
         self.collection_name = collection_name
+        self.max_workers = max_workers
 
     def index_all(
             self,
             source_dirs: Optional[List[str]] = None,
             rebuild: bool = False,
+            max_workers: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         索引所有文档
@@ -52,6 +59,7 @@ class Indexer:
         Args:
             source_dirs: 源目录列表（覆盖默认）
             rebuild: 是否重建索引（清空现有数据）
+            max_workers: 并行分块线程数（决策 D7）；None 使用构造时的默认值
 
         Returns:
             Dict: 索引统计信息
@@ -73,10 +81,24 @@ class Indexer:
         if not documents:
             return {"total_documents": 0, "total_chunks": 0, "documents": []}
 
-        # 2. 分块
+        # 2. 分块（并行：文档之间相互独立；决策 D7）
         print("✂️ 分块处理...")
-        all_chunks = self.chunker.chunk_documents(documents)
-        print(f"   ✅ 生成 {len(all_chunks)} 个块")
+        workers = max_workers if max_workers is not None else self.max_workers
+        if workers is None:
+            workers = min(4, os.cpu_count() or 1)
+
+        if workers > 1 and len(documents) > 1:
+            # 多线程并行分块，缩短大语料库的建立时间
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                chunk_lists = list(executor.map(self.chunker.chunk_document, documents))
+                for i, chunks in enumerate(chunk_lists):
+                    if not chunks:
+                        print(f"   ⚠️ 文档分块为空: {documents[i].file_name}")
+        else:
+            chunk_lists = [self.chunker.chunk_document(d) for d in documents]
+
+        all_chunks = [c for cl in chunk_lists for c in cl]
+        print(f"   ✅ 生成 {len(all_chunks)} 个块（并行度 {workers}）")
 
         if not all_chunks:
             return {"total_documents": len(documents), "total_chunks": 0, "documents": []}
