@@ -108,6 +108,7 @@ async def refresh_index():
             updated=len(result.get("updated", [])),
             removed=len(result.get("removed", [])),
             unchanged=result.get("unchanged", 0),
+            skipped=len(result.get("skipped", [])),
             message="增量索引完成",
         )
     except HTTPException:

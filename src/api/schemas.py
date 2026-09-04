@@ -52,6 +52,7 @@ class IndexRefreshResponse(BaseModel):
     updated: int
     removed: int
     unchanged: int
+    skipped: int = 0  # 已存在而跳过的文档（历史向量纳入清单管理）
     message: str
 
 
