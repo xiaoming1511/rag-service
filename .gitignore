@@ -18,3 +18,6 @@ htmlcov/
 # ========== IDE / 系统 ==========
 .idea/
 .DS_Store
+
+# ========== Obsidian 插件（node_modules 不入库；main.js 构建产物保留入库便于直接安装） ==========
+obsidian-plugin/node_modules/

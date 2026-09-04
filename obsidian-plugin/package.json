@@ -1,0 +1,21 @@
+{
+  "name": "rag-service-obsidian",
+  "version": "1.0.0",
+  "description": "RAG Service 原生插件：侧边栏聊天、点击跳转笔记、自动增量索引",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
+    "install": "npm run build && node scripts/install.mjs"
+  },
+  "keywords": ["obsidian", "rag", "chat"],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.20.0",
+    "obsidian": "^1.4.0",
+    "tslib": "^2.6.0",
+    "typescript": "^5.3.0"
+  }
+}

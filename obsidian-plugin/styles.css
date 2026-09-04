@@ -1,0 +1,130 @@
+/* ================================================================
+ * RAG Service 插件样式
+ * ================================================================ */
+
+/* ---- 聊天视图整体 ---- */
+.rag-chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---- 消息区 ---- */
+.rag-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rag-chat-placeholder {
+  margin: auto;
+  text-align: center;
+  color: var(--text-muted);
+  opacity: 0.6;
+  white-space: pre-line;
+  font-size: 14px;
+}
+
+/* ---- 消息气泡 ---- */
+.rag-msg {
+  display: flex;
+}
+
+.rag-msg-user {
+  justify-content: flex-end;
+}
+
+.rag-msg-assistant {
+  justify-content: flex-start;
+}
+
+.rag-msg-bubble {
+  max-width: 92%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.rag-msg-user .rag-msg-bubble {
+  background: var(--interactive-accent);
+  color: #fff;
+}
+
+.rag-msg-assistant .rag-msg-bubble {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.rag-msg-bubble p {
+  margin: 4px 0;
+}
+
+/* ---- 来源引用 ---- */
+.rag-sources {
+  margin-top: 6px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--interactive-accent);
+  background: var(--background-secondary);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.rag-sources-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-normal);
+}
+
+.rag-source {
+  padding: 2px 0;
+}
+
+.rag-source-link {
+  cursor: pointer;
+  color: var(--text-accent);
+  text-decoration: underline;
+}
+
+.rag-source-heading {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.rag-source-score {
+  color: var(--text-muted);
+}
+
+/* ---- 输入区 ---- */
+.rag-chat-input-area {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.rag-chat-input {
+  flex: 1;
+  resize: none;
+  min-height: 40px;
+  font-size: 13px;
+}
+
+.rag-chat-send {
+  align-self: flex-end;
+}
+
+/* ---- 状态栏 ---- */
+.rag-status {
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.rag-setting-tip {
+  color: var(--text-muted);
+  font-size: 12px;
+}
