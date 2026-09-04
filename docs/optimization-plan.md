@@ -21,6 +21,8 @@
 | D9 | vault 的 wiki/ 目录 | **继续排除**：加载器保持硬编码排除名为 wiki 的目录（用户确认），仅索引 xu/x 根笔记（当前 6 个），wiki/ 下的概念/实体页不纳入 |
 
 > 实施进度：P0 ✅（2026-09-04）｜P1 ✅（2026-09-04，含离线单测 7 项）｜P2 ✅（2026-09-04，解析器注册表 + URL 端点，测试 5 项）｜P3 ✅（2026-09-04，历史裁剪 + 可选改写 + 前端回传，测试 9 项）｜P4 ✅（2026-09-04，并行分块 + 嵌入内存 LRU + 响应缓存，测试 12 项；实机验证缓存命中 6.1s → 0.002s）｜P5 ✅（2026-09-04，TypeScript+esbuild 完整版插件，已安装至 ~/projects/obsidian/.obsidian/plugins/rag-service/）
+>
+> **评审补全（LLM Wiki 对照，第二期）**：R1a ✅（严格来源模式 / 问答沉淀 syntheses/vault 根 / 后台摄入队列 单worker+持久化+jobs 端点）｜R1b ✅（EPUB/PPTX 解析 + Deep Research 简版 POST /v1/research）｜R2 ✅（AI 知识层生成 wiki-builder 写入既有 xu/wiki + 周期维护 + 知识图谱 /v1/graph + 网页力导向）。实机：知识层 6 摘要页+33 概念+15 实体，图谱 98 节点/116 边。测试共 **91 项**。
 
 ---
 
