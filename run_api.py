@@ -110,7 +110,7 @@ def main():
     from src.pipeline.index_sync import IndexSync
     from src.pipeline.watcher import IndexWatcher
 
-    index_sync = IndexSync(indexer, manifest_path="./data/index_manifest.json")
+    index_sync = IndexSync(indexer)  # manifest 落在向量库目录下
     pipeline._index_sync = index_sync
 
     watcher = IndexWatcher(

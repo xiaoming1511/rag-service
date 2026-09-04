@@ -63,7 +63,8 @@ P5 Obsidian 插件 TypeScript 插件（完整版：聊天面板/点击跳转/状
 ## 四、P1 增量索引关键设计
 
 ### 4.1 变更清单（manifest）
-- 文件：`data/index_manifest.json`
+- 文件：`{向量库持久化目录}/index_manifest.json`（与向量库一一对应；
+  如 ./data/chroma_db/index_manifest.json，默认跟随 ChromaStore.persist_directory）
 ```json
 {
   "version": 1,

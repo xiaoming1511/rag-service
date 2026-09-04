@@ -15,7 +15,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from src.pipeline.indexer import Indexer
 
@@ -28,16 +28,21 @@ class IndexSync:
     def __init__(
             self,
             indexer: Indexer,
-            manifest_path: str = "./data/index_manifest.json",
+            manifest_path: Optional[str] = None,
     ):
         """
         初始化增量同步器
 
         Args:
             indexer: 索引器（含 loader/chunker/embedder/vector_store）
-            manifest_path: 变更清单文件路径
+            manifest_path: 变更清单文件路径；
+                默认放在向量库持久化目录下（index_manifest.json），
+                使清单与向量库一一对应，互不干扰
         """
         self.indexer = indexer
+        if manifest_path is None:
+            persist_dir = getattr(indexer.vector_store, "persist_directory", "./data")
+            manifest_path = str(Path(persist_dir) / "index_manifest.json")
         self.manifest_path = Path(manifest_path)
         self.manifest: Dict[str, Any] = {
             "version": self.MANIFEST_VERSION,

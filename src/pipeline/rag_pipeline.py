@@ -227,7 +227,8 @@ class RAGPipeline:
         index_sync = getattr(self, '_index_sync', None)
         if index_sync is None:
             from src.pipeline.index_sync import IndexSync
-            index_sync = IndexSync(self.indexer, manifest_path="./data/index_manifest.json")
+            # manifest 默认落在向量库持久化目录下，与向量库一一对应
+            index_sync = IndexSync(self.indexer, manifest_path=None)
             self._index_sync = index_sync
 
         return index_sync.sync(rebuild=rebuild)
