@@ -128,3 +128,32 @@ sync():
 - **P5**：`obsidian-plugin/` 独立 TypeScript 工程（npm + esbuild）；
   `manifest.json` + `main.ts`：侧边栏视图（SSE 流式聊天）、`vault.getAbstractFileByPath`
   跳转（path = file_path 减 vault 根）、状态栏、设置面板、自动索引开关
+
+---
+
+## 六、扩容演进项备忘（2026-09-06，Wave 1-3 修复后新增）
+
+> 以下为「暂不执行、达到触发条件后启动」的演进项，避免当前规模下的过度设计。
+> 背景：评审发现 C1 并发风险后，已按批复采用乙方案（IndexSync 进程内互斥锁 + manifest 原子写，commit 118de22）。
+
+### 6.1 索引写入队列收敛（原 C1-甲方案）
+
+- **内容**：watcher 线程、`/v1/index/refresh`、IngestQueue worker 三路索引入口全部收敛到 IngestQueue 单 worker 串行执行，refresh 改「入队 + 回执」模式
+- **暂缓原因**：插件 refresh 为同步等待统计返回；当前 8 文档 / 59 向量规模 sync <1s，互斥锁已消除并发风险
+- **触发条件（满足任一）**：语料 ≥ 500 文档，或单次增量 sync > 10s，或出现多客户端同时触发索引
+- **预估改动**：index_sync / ingest_queue / routes/index / 插件 api.ts，约 80-120 行
+
+### 6.2 分块并行策略实测（原 S3）
+
+- 当前保留并行分块（决策 D7）；wiki 扩容后用索引耗时对照（max_workers=1 vs 自动）实测再定
+
+### 6.3 检索质量增强（B3 BM25 / B4 父子块）——已实现（2026-09-06，commit 319c301 / 00a7540）
+
+- **B3 BM25 混合检索**：已实现（jieba + rank-bm25 + RRF 融合），实测 8 文档规模收益≈零，**默认关闭**（settings.yaml `hybrid: false`），扩容后翻开关并用 `make eval` 对照
+- **B4 父子块召回**：已按方案 A 落地（检索时按 doc_id+heading_path 实时聚合兄弟块，零重建），当前语料 59 块仅 1 个多块章节、机制空转，**默认开启**，扩容后自动生效
+- **度量基线**：`make eval`（32 条 QA：recall@5=0.9062 / mrr@5=0.7865 / hit@5=0.9375）；对照开关 `--no-hybrid` / `--no-parent`
+
+### 6.4 公网访问加固（P0.5 全量）
+
+- 预留接口已就绪：`config.auth.enabled` 默认 false（commit 118de22），插件已默认发送 Bearer 头，开启即生效
+- 启用步骤：settings.yaml 打开 auth 并设 api_key → Tailscale（推荐，零公网暴露）或 Cloudflare Tunnel 组网 → 视暴露面补限流

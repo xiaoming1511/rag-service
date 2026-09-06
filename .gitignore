@@ -19,5 +19,8 @@ htmlcov/
 .idea/
 .DS_Store
 
+# ========== AI 助手工作数据（记忆/报告，非项目代码） ==========
+.workbuddy/
+
 # ========== Obsidian 插件（node_modules 不入库；main.js 构建产物保留入库便于直接安装） ==========
 obsidian-plugin/node_modules/
