@@ -6,7 +6,8 @@
 import concurrent.futures
 import hashlib
 import os
-from typing import List, Optional, Dict, Any
+from collections import Counter
+from typing import List, Optional, Dict, Any, Callable
 from pathlib import Path
 from datetime import datetime
 
@@ -52,17 +53,20 @@ class Indexer:
             source_dirs: Optional[List[str]] = None,
             rebuild: bool = False,
             max_workers: Optional[int] = None,
+            cancelled: Optional[Callable[[], bool]] = None,
     ) -> Dict[str, Any]:
         """
         索引所有文档
 
         Args:
-            source_dirs: 源目录列表（覆盖默认）
+            source_dirs: 源目录列表（覆盖默认；只更新目录，扩展名沿用 loader 配置）
             rebuild: 是否重建索引（清空现有数据）
             max_workers: 并行分块线程数（决策 D7）；None 使用构造时的默认值
+            cancelled: 取消检查回调（供 IngestQueue 长任务取消）；
+                在每个嵌入批次边界检查，返回 True 时返回已完成部分的统计
 
         Returns:
-            Dict: 索引统计信息
+            Dict: 索引统计信息（取消时含 cancelled: True）
         """
         # 如果指定了源目录，更新 loader
         if source_dirs:
@@ -112,6 +116,18 @@ class Indexer:
         all_embeddings = []
 
         for i in range(0, len(chunk_texts), batch_size):
+            # 取消检查（批次粒度）：尚未入库，已生成向量在缓存中可复用
+            if cancelled is not None and cancelled():
+                print("⏹️ 索引任务已取消")
+                return {
+                    "total_documents": len(documents),
+                    "total_chunks": len(all_chunks),
+                    "total_vectors": len(all_embeddings),
+                    "documents": [],
+                    "vector_store_count": self.vector_store.count(),
+                    "cancelled": True,
+                }
+
             batch = chunk_texts[i:i + batch_size]
             embeddings = self.embedder.embed(batch)
             all_embeddings.extend(embeddings)
@@ -135,7 +151,8 @@ class Indexer:
             metadatas=metadatas,
         )
 
-        # 统计信息
+        # 统计信息（Counter 分组：避免 文档数 × 块数 的双重遍历）
+        doc_chunk_counts = Counter(c.metadata.get('doc_id') for c in all_chunks)
         stats = {
             "total_documents": len(documents),
             "total_chunks": len(all_chunks),
@@ -144,7 +161,7 @@ class Indexer:
                 {
                     "file_name": d.file_name,
                     "file_path": d.file_path,
-                    "chunk_count": len([c for c in all_chunks if c.metadata.get('doc_id') == d.id]),
+                    "chunk_count": doc_chunk_counts.get(d.id, 0),
                 }
                 for d in documents
             ],

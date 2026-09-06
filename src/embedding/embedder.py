@@ -84,14 +84,20 @@ class Embedder:
                 for i in range(0, len(uncached_texts), batch_size):
                     batch = uncached_texts[i:i + batch_size]
                     embeddings = self.client.embed_sync(self.model, batch)
+                    # fail-fast：数量不匹配意味着 chunk 与向量错位，错误数据
+                    # 静默入库比报错严重得多，必须抛异常
+                    if len(embeddings) != len(batch):
+                        raise RuntimeError(
+                            f"嵌入 API 返回数量不匹配: 请求 {len(batch)} 条, 返回 {len(embeddings)} 条"
+                        )
 
                     for j, emb in enumerate(embeddings):
                         idx = uncached_indices[i + j]
                         results[idx] = emb
                         self._save_cache(uncached_texts[i + j], emb)
 
-            # 过滤掉 None（理论上不应该有）
-            return [r for r in results if r is not None]
+            # 此时 results 中不应再有 None（数量已校验）
+            return results
 
         # 不使用缓存，直接调用 API
         return self.client.embed_sync(self.model, texts)
@@ -129,13 +135,18 @@ class Embedder:
                 for i in range(0, len(uncached_texts), batch_size):
                     batch = uncached_texts[i:i + batch_size]
                     embeddings = await self.client.embed_async(self.model, batch)
+                    # fail-fast（与同步版本一致）：数量不匹配立即抛异常
+                    if len(embeddings) != len(batch):
+                        raise RuntimeError(
+                            f"嵌入 API 返回数量不匹配: 请求 {len(batch)} 条, 返回 {len(embeddings)} 条"
+                        )
 
                     for j, emb in enumerate(embeddings):
                         idx = uncached_indices[i + j]
                         results[idx] = emb
                         self._save_cache(uncached_texts[i + j], emb)
 
-            return [r for r in results if r is not None]
+            return results
 
         return await self.client.embed_async(self.model, texts)
 
@@ -157,9 +168,17 @@ class Embedder:
         """生成缓存键（文本的 MD5 哈希）"""
         return hashlib.md5(text.encode('utf-8')).hexdigest()
 
+    def _mem_key(self, text: str) -> str:
+        """内存缓存键（模型名前缀：切换嵌入模型后不会命中旧模型的向量）"""
+        return f"{self.model}:{self._get_cache_key(text)}"
+
+    def _model_cache_dir(self) -> "Path":
+        """磁盘缓存子目录（按模型隔离，目录即命名空间）"""
+        return self.cache_dir / self.model
+
     def _get_cache(self, text: str) -> Optional[List[float]]:
         """从缓存获取向量（内存 LRU 优先，其次磁盘），未命中返回 None"""
-        cache_key = self._get_cache_key(text)
+        cache_key = self._mem_key(text)
 
         # 1. 内存缓存（决策 D7：免磁盘 I/O）
         if self.mem_cache_capacity > 0:
@@ -168,8 +187,8 @@ class Embedder:
                 self._mem_cache.move_to_end(cache_key)
                 return list(mem)  # 返回副本，避免调用方改动缓存
 
-        # 2. 磁盘缓存
-        cache_file = self.cache_dir / f"{cache_key}.json"
+        # 2. 磁盘缓存（按模型分目录）
+        cache_file = self._model_cache_dir() / f"{self._get_cache_key(text)}.json"
         if cache_file.exists():
             try:
                 with open(cache_file, 'r') as f:
@@ -191,15 +210,18 @@ class Embedder:
             self._mem_cache.popitem(last=False)
 
     def _save_cache(self, text: str, embedding: List[float]):
-        """保存向量：写入内存与磁盘缓存（写入失败不影响主流程）"""
-        cache_key = self._get_cache_key(text)
+        """保存向量：写入内存与磁盘缓存（按模型分目录；写入失败不影响主流程）"""
+        cache_key = self._mem_key(text)
         self._mem_put(cache_key, embedding)
 
-        cache_file = self.cache_dir / f"{cache_key}.json"
         try:
+            cache_dir = self._model_cache_dir()
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = cache_dir / f"{self._get_cache_key(text)}.json"
             with open(cache_file, 'w') as f:
                 json.dump({
                     'text': text,
+                    'model': self.model,
                     'embedding': embedding,
                 }, f)
         except Exception:

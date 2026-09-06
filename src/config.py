@@ -34,7 +34,14 @@ class RetrievalConfig(BaseModel):
     rerank_top_k: int = 3
     enable_rerank: bool = True
     similarity_threshold: float = 0.5
+    rerank_threshold: float = 0.0  # 重排序后分数阈值（低于丢弃）；0 = 关闭，建议评测基线后调参
     strict_sources: bool = False  # 严格来源模式：检索为空时不调用模型，直接告知未找到
+
+
+class AuthConfig(BaseModel):
+    """API 认证配置（预留：公网开放时启用，Obsidian 插件已默认发送 Bearer 头）"""
+    enabled: bool = False  # False = 不校验（当前本地行为不变）
+    api_key: str = ""      # 启用后校验请求头 Authorization: Bearer <api_key>
 
 
 class SynthesesConfig(BaseModel):
@@ -98,6 +105,7 @@ class AppConfig(BaseModel):
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
     syntheses: SynthesesConfig = Field(default_factory=SynthesesConfig)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
 
 class ConfigManager:

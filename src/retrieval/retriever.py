@@ -21,6 +21,7 @@ class Retriever:
             top_k: int = 5,
             rerank_top_k: int = 3,
             similarity_threshold: float = 0.5,
+            rerank_threshold: float = 0.0,
     ):
         """
         初始化检索服务
@@ -31,7 +32,10 @@ class Retriever:
             reranker: 重排序服务（可选）
             top_k: 初检索返回数量
             rerank_top_k: 重排序后保留数量
-            similarity_threshold: 相似度阈值（低于此值的结果将被过滤）
+            similarity_threshold: 相似度阈值（rerank 前，基于 cosine 分数过滤）
+            rerank_threshold: 重排序后分数阈值（低于此值的结果被丢弃）；
+                0 表示关闭（默认）。rerank 后分数语义已变为 reranker 相关性分，
+                与 cosine 阈值不可混用；建议评测基线建立后再启用（0.2~0.3 起试）
         """
         self.vector_store = vector_store
         self.embedder = embedder
@@ -39,6 +43,7 @@ class Retriever:
         self.top_k = top_k
         self.rerank_top_k = rerank_top_k
         self.similarity_threshold = similarity_threshold
+        self.rerank_threshold = rerank_threshold
 
     def retrieve(
             self,
@@ -81,6 +86,10 @@ class Retriever:
                 results=results,
                 top_k=self.rerank_top_k,
             )
+            # 重排序后二次过滤：此时 score 已是 reranker 相关性分（与
+            # similarity_threshold 的 cosine 语义不同），用独立阈值
+            if self.rerank_threshold > 0:
+                results = [r for r in results if r.score >= self.rerank_threshold]
         else:
             # 如果不使用重排序，截取 top_k
             results = results[:top_k] if top_k else results

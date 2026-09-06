@@ -5,6 +5,7 @@ RAG API 服务启动脚本
 
 import os
 import sys
+from functools import partial
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -81,6 +82,7 @@ def main():
         top_k=config.retrieval.top_k,
         rerank_top_k=config.retrieval.rerank_top_k,
         similarity_threshold=config.retrieval.similarity_threshold,
+        rerank_threshold=config.retrieval.rerank_threshold,
     )
 
     # 生成器（模型路由：chat/rewrite/research_subqueries 可分别配置模型）
@@ -145,11 +147,14 @@ def main():
     from src.pipeline.ingest_queue import IngestQueue
 
     def run_index_job(job):
-        """队列任务执行函数（pipeline 同步接口的非阻塞包装）"""
+        """队列任务执行函数（pipeline 同步接口的非阻塞包装；支持文档/批次粒度取消）"""
+        cancelled = partial(ingest_queue.is_cancelled, job.id)
         if job.kind == "full":
-            return pipeline.index(rebuild=job.params.get("rebuild", False))
+            return pipeline.index(rebuild=job.params.get("rebuild", False), cancelled=cancelled)
         if job.kind == "incremental":
-            return pipeline.index_incremental(rebuild=job.params.get("rebuild", False))
+            return pipeline.index_incremental(
+                rebuild=job.params.get("rebuild", False), cancelled=cancelled
+            )
         if job.kind == "url":
             return pipeline.index_url(url=job.params["url"], timeout=job.params.get("timeout", 30.0))
         raise ValueError(f"未知任务类型: {job.kind}")

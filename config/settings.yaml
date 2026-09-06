@@ -23,6 +23,7 @@ retrieval:
   rerank_top_k: 3        # 重排序后保留数量
   enable_rerank: true    # 是否启用重排序
   similarity_threshold: 0.5
+  rerank_threshold: 0.0  # 重排序后分数阈值（低于丢弃）；0=关闭，建议评测基线建立后调参（0.2~0.3 起试）
   strict_sources: false  # 严格来源模式：检索为空时不调用模型（默认关；可经 /v1/config 或插件面板热开启）
 
 # 生成配置
@@ -71,3 +72,8 @@ routing:
   chat: ""                       # 问答生成（空 = qwen3.5-4b-mlx-4bit）
   rewrite: ""                    # 多轮追问改写（空 = chat）
   research_subqueries: ""        # Deep Research 子查询拆解（空 = chat）
+
+# API 认证配置（预留：公网开放时启用；Obsidian 插件已默认发送 Bearer 头，插件端无需改动）
+auth:
+  enabled: false                 # false = 不校验（当前本地行为不变）
+  api_key: ""                    # 启用后校验请求头 Authorization: Bearer <api_key>

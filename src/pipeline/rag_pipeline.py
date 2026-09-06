@@ -76,6 +76,36 @@ class RAGPipeline:
 
         return result
 
+    @staticmethod
+    def _sources_payload(
+            results: List[Any],
+            truncate_content: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """
+        把检索结果转为统一的来源列表（同步/流式/异步三通道复用）
+
+        Args:
+            results: SearchResult 列表
+            truncate_content: 是否截断 content 为 200 字符预览
+                （插件渲染来源只用 file_name/heading/file_path，content 仅预览用途）
+        """
+        sources = []
+        for r in results[:3]:
+            content = r.content
+            if truncate_content and len(content) > 200:
+                content = content[:200] + "..."
+            sources.append({
+                "file_name": r.metadata.get("file_name", "unknown"),
+                "file_path": r.metadata.get("file_path", ""),
+                "heading": r.metadata.get("heading_path", ""),
+                "line_start": r.metadata.get("start_line") or None,
+                "line_end": r.metadata.get("end_line") or None,
+                "images": r.metadata.get("images") or None,
+                "content": content,
+                "score": r.score,
+            })
+        return sources
+
     def _save_synthesis(
             self,
             question: str,
@@ -134,19 +164,7 @@ class RAGPipeline:
 
         return {
             "answer": answer,
-            "sources": [
-                {
-                    "file_name": r.metadata.get("file_name", "unknown"),
-                    "file_path": r.metadata.get("file_path", ""),
-                    "heading": r.metadata.get("heading_path", ""),
-                    "line_start": r.metadata.get("start_line") or None,
-                    "line_end": r.metadata.get("end_line") or None,
-                    "images": r.metadata.get("images") or None,
-                    "content": r.content[:200] + "..." if len(r.content) > 200 else r.content,
-                    "score": r.score,
-                }
-                for r in results[:3]
-            ],
+            "sources": self._sources_payload(results),
             "context": context,
             "total_results": len(results),
         }
@@ -179,6 +197,10 @@ class RAGPipeline:
             max_context_length=self.max_context_length,
         )
 
+        # sources_data 先初始化为空列表：检索为空或 include_sources=False 时
+        # 也必须已定义（沉淀判断引用它），否则 NameError
+        sources_data: List[Dict[str, Any]] = []
+
         # 严格来源模式：检索为空 → 不调用模型
         if self.strict_sources and not results:
             strict_msg = (
@@ -191,18 +213,7 @@ class RAGPipeline:
 
         # 2. 先发送来源信息（JSON 格式）
         if self.include_sources and results:
-            sources_data = []
-            for r in results[:3]:
-                sources_data.append({
-                    "file_name": r.metadata.get("file_name", "unknown"),
-                    "file_path": r.metadata.get("file_path", ""),
-                    "heading": r.metadata.get("heading_path", ""),
-                    "line_start": r.metadata.get("start_line") or None,
-                    "line_end": r.metadata.get("end_line") or None,
-                    "images": r.metadata.get("images") or None,
-                    "content": r.content,
-                    "score": r.score,
-                })
+            sources_data = self._sources_payload(results)
             yield f"data: {json.dumps({'type': 'sources', 'data': sources_data}, ensure_ascii=False)}\n\n"
 
         # 3. 流式生成回答（逐块发送）
@@ -256,6 +267,9 @@ class RAGPipeline:
         )
         context, results = await asyncio.to_thread(retrieve)
 
+        # sources_data 先初始化为空列表（同 query_stream，防 NameError）
+        sources_data: List[Dict[str, Any]] = []
+
         # 严格来源模式：检索为空 → 不调用模型
         if self.strict_sources and not results:
             strict_msg = (
@@ -268,18 +282,7 @@ class RAGPipeline:
 
         # 2. 先发送来源信息
         if self.include_sources and results:
-            sources_data = []
-            for r in results[:3]:
-                sources_data.append({
-                    "file_name": r.metadata.get("file_name", "unknown"),
-                    "file_path": r.metadata.get("file_path", ""),
-                    "heading": r.metadata.get("heading_path", ""),
-                    "line_start": r.metadata.get("start_line") or None,
-                    "line_end": r.metadata.get("end_line") or None,
-                    "images": r.metadata.get("images") or None,
-                    "content": r.content,
-                    "score": r.score,
-                })
+            sources_data = self._sources_payload(results)
             yield f"data: {json.dumps({'type': 'sources', 'data': sources_data}, ensure_ascii=False)}\n\n"
 
         # 3. 异步流式生成回答
@@ -307,13 +310,15 @@ class RAGPipeline:
             self,
             source_dirs: Optional[List[str]] = None,
             rebuild: bool = False,
+            cancelled: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         索引文档（全量）
 
         Args:
-            source_dirs: 源目录列表
+            source_dirs: 源目录列表（Indexer 内部只更新目录、保留配置的扩展名）
             rebuild: 是否重建（清空现有索引后重新索引）
+            cancelled: 取消检查回调（供 IngestQueue 长任务取消）
 
         Returns:
             Dict: 索引统计信息；若索引器不可用，返回 {"error": ...}
@@ -321,17 +326,13 @@ class RAGPipeline:
         if not hasattr(self, 'indexer') or self.indexer is None:
             return {"error": "Indexer not available"}
 
-        # 如果指定了源目录，更新 loader
-        if source_dirs and hasattr(self.indexer, 'loader'):
-            from src.document.loader import DocumentLoader
-            self.indexer.loader = DocumentLoader(
-                source_dirs=source_dirs,
-                extensions=[".md", ".markdown"],
-            )
+        return self.indexer.index_all(source_dirs=source_dirs, rebuild=rebuild, cancelled=cancelled)
 
-        return self.indexer.index_all(rebuild=rebuild)
-
-    def index_incremental(self, rebuild: bool = False) -> Dict[str, Any]:
+    def index_incremental(
+            self,
+            rebuild: bool = False,
+            cancelled: Optional[Any] = None,
+    ) -> Dict[str, Any]:
         """
         增量索引：仅处理有变更的文档（新增/修改/删除），避免全量重建
 
@@ -340,6 +341,7 @@ class RAGPipeline:
 
         Args:
             rebuild: 为 True 时清空向量库与清单后全量重建
+            cancelled: 取消检查回调（文档粒度取消）
 
         Returns:
             Dict: 增量统计信息 {added, updated, removed, unchanged, skipped}
@@ -354,7 +356,7 @@ class RAGPipeline:
             index_sync = IndexSync(self.indexer, manifest_path=None)
             self._index_sync = index_sync
 
-        result = index_sync.sync(rebuild=rebuild)
+        result = index_sync.sync(rebuild=rebuild, cancelled=cancelled)
 
         return result
 

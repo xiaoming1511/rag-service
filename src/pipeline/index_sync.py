@@ -14,8 +14,9 @@
 import hashlib
 import json
 import os
+import threading
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 
 from src.pipeline.indexer import Indexer
 
@@ -44,6 +45,9 @@ class IndexSync:
             persist_dir = getattr(indexer.vector_store, "persist_directory", "./data")
             manifest_path = str(Path(persist_dir) / "index_manifest.json")
         self.manifest_path = Path(manifest_path)
+        # 进程内互斥锁：sync 有多个并发入口（watcher 回调线程、/v1/index/refresh、
+        # IngestQueue worker），不加锁会出现 manifest 读-改-写竞争与向量库写交错
+        self._lock = threading.Lock()
         self.manifest: Dict[str, Any] = {
             "version": self.MANIFEST_VERSION,
             "docs": {},
@@ -69,10 +73,12 @@ class IndexSync:
             self.manifest = {"version": self.MANIFEST_VERSION, "docs": {}}
 
     def save_manifest(self):
-        """保存变更清单"""
+        """保存变更清单（原子写：先写临时文件再替换，中断不会损坏清单）"""
         self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.manifest_path, "w", encoding="utf-8") as f:
+        temp = self.manifest_path.with_suffix(".json.tmp")
+        with open(temp, "w", encoding="utf-8") as f:
             json.dump(self.manifest, f, ensure_ascii=False, indent=2)
+        temp.replace(self.manifest_path)
 
     # ================================================================
     # 文件指纹
@@ -126,16 +132,32 @@ class IndexSync:
     # 核心：三态同步
     # ================================================================
 
-    def sync(self, rebuild: bool = False) -> Dict[str, Any]:
+    def sync(
+            self,
+            rebuild: bool = False,
+            cancelled: Optional[Callable[[], bool]] = None,
+    ) -> Dict[str, Any]:
         """
-        执行一次增量同步
+        执行一次增量同步（进程内互斥）
 
         Args:
             rebuild: 为 True 时清空向量库与清单后全量重建
+            cancelled: 取消检查回调（供 IngestQueue 长任务取消）；在每个文档
+                处理边界轮询，返回 True 时停止后续处理（已处理部分保留，
+                增量同步天然幂等，下次同步续跑）
 
         Returns:
-            Dict: 统计信息 {added, updated, removed, unchanged, skipped}
+            Dict: 统计信息 {added, updated, removed, unchanged, skipped, cancelled}
         """
+        with self._lock:
+            return self._sync_locked(rebuild=rebuild, cancelled=cancelled)
+
+    def _sync_locked(
+            self,
+            rebuild: bool = False,
+            cancelled: Optional[Callable[[], bool]] = None,
+    ) -> Dict[str, Any]:
+        """实际执行同步（须持有 self._lock 调用）"""
         from src.document.loader import DocumentLoader
 
         self.load_manifest()
@@ -159,6 +181,11 @@ class IndexSync:
 
         # ---------- 阶段一：处理当前存在的文件 ----------
         for path_str, path in current_files.items():
+            # 取消检查（文档粒度）：已处理部分保留，未处理文件下次同步续跑
+            if cancelled is not None and cancelled():
+                stats["cancelled"] = True
+                break
+
             try:
                 st = path.stat()
             except OSError:
@@ -210,14 +237,15 @@ class IndexSync:
                     else:
                         stats["skipped"].append(path.name)
 
-        # ---------- 阶段二：处理已消失的文件 ----------
-        for path_str in list(docs_map.keys()):
-            if path_str not in current_files:
-                entry = docs_map.pop(path_str)
-                doc_id = entry.get("doc_id")
-                if doc_id:
-                    store.delete_by_doc_id(doc_id)
-                stats["removed"].append(Path(path_str).name)
+        # ---------- 阶段二：处理已消失的文件（已取消时跳过，下次同步续跑） ----------
+        if not stats.get("cancelled"):
+            for path_str in list(docs_map.keys()):
+                if path_str not in current_files:
+                    entry = docs_map.pop(path_str)
+                    doc_id = entry.get("doc_id")
+                    if doc_id:
+                        store.delete_by_doc_id(doc_id)
+                    stats["removed"].append(Path(path_str).name)
 
         self.save_manifest()
 

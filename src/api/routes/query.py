@@ -4,6 +4,7 @@
 """
 
 from typing import Dict, Any
+import asyncio
 import json
 
 from fastapi import APIRouter, HTTPException
@@ -32,9 +33,10 @@ async def query(request: QueryRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail="Pipeline 未初始化")
 
     try:
-        # 同步查询（阻塞调用同步 oMLX 客户端；
-        # 如需完全异步，可改为 await _pipeline.query_async(...)）
-        result = _pipeline.query(
+        # 同步查询放入线程池执行：管线内含阻塞的嵌入调用与 LLM 生成
+        # （最长 60s），直接在事件循环调用会冻结所有并发请求
+        result = await asyncio.to_thread(
+            _pipeline.query,
             question=request.question,
             top_k=request.top_k,
             use_rerank=request.use_rerank,

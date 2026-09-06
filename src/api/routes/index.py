@@ -2,6 +2,8 @@
 索引路由
 """
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 
 from src.api.schemas import (
@@ -35,7 +37,9 @@ async def index_documents(request: IndexRequest):
         raise HTTPException(status_code=503, detail="Pipeline 未初始化")
 
     try:
-        result = _pipeline.index(
+        # 全量索引含阻塞的分块+嵌入+写入，放入线程池执行，避免冻结事件循环
+        result = await asyncio.to_thread(
+            _pipeline.index,
             source_dirs=request.source_dirs,
             rebuild=request.rebuild,
         )
@@ -69,7 +73,12 @@ async def index_url(request: IndexUrlRequest):
         raise HTTPException(status_code=503, detail="Pipeline 未初始化")
 
     try:
-        result = _pipeline.index_url(url=request.url, timeout=request.timeout)
+        # 网页抓取+解析+嵌入均为阻塞操作，放入线程池执行
+        result = await asyncio.to_thread(
+            _pipeline.index_url,
+            url=request.url,
+            timeout=request.timeout,
+        )
 
         if result.get("error"):
             raise HTTPException(status_code=500, detail=result["error"])
@@ -178,7 +187,9 @@ async def refresh_index():
         raise HTTPException(status_code=503, detail="Pipeline 未初始化")
 
     try:
-        result = _pipeline.index_incremental()
+        # 增量同步含文件扫描、MD5 与嵌入调用，放入线程池执行
+        # （与 watcher 回调的并发互斥由 IndexSync 内部锁保证）
+        result = await asyncio.to_thread(_pipeline.index_incremental)
 
         if result.get("error"):
             raise HTTPException(status_code=500, detail=result["error"])
