@@ -21,6 +21,7 @@ from src.embedding.embedder import Embedder
 from src.vector_store.chroma_store import ChromaStore
 from src.retrieval.reranker import Reranker
 from src.retrieval.retriever import Retriever
+from src.retrieval.bm25_index import BM25Index
 from src.generation.generator import Generator
 from src.pipeline.indexer import Indexer
 from src.pipeline.rag_pipeline import RAGPipeline
@@ -75,6 +76,7 @@ def main():
         enabled=config.retrieval.enable_rerank,
     )
 
+    bm25_index = BM25Index(vector_store)  # 混合检索（B3）：RRF 融合的稀疏路
     retriever = Retriever(
         vector_store=vector_store,
         embedder=embedder,
@@ -83,6 +85,10 @@ def main():
         rerank_top_k=config.retrieval.rerank_top_k,
         similarity_threshold=config.retrieval.similarity_threshold,
         rerank_threshold=config.retrieval.rerank_threshold,
+        bm25_index=bm25_index,
+        hybrid=config.retrieval.hybrid,
+        hybrid_candidates=config.retrieval.hybrid_candidates,
+        rrf_k=config.retrieval.rrf_k,
     )
 
     # 生成器（模型路由：chat/rewrite/research_subqueries 可分别配置模型）
@@ -122,7 +128,7 @@ def main():
     pipeline = RAGPipeline(
         retriever=retriever,
         generator=generator,
-        max_context_length=2000,
+        max_context_tokens=config.retrieval.context_token_budget,
         include_sources=True,
         response_cache=ResponseCache(
             enabled=config.performance.response_cache,
@@ -149,15 +155,19 @@ def main():
     def run_index_job(job):
         """队列任务执行函数（pipeline 同步接口的非阻塞包装；支持文档/批次粒度取消）"""
         cancelled = partial(ingest_queue.is_cancelled, job.id)
-        if job.kind == "full":
-            return pipeline.index(rebuild=job.params.get("rebuild", False), cancelled=cancelled)
-        if job.kind == "incremental":
-            return pipeline.index_incremental(
-                rebuild=job.params.get("rebuild", False), cancelled=cancelled
-            )
-        if job.kind == "url":
-            return pipeline.index_url(url=job.params["url"], timeout=job.params.get("timeout", 30.0))
-        raise ValueError(f"未知任务类型: {job.kind}")
+        try:
+            if job.kind == "full":
+                return pipeline.index(rebuild=job.params.get("rebuild", False), cancelled=cancelled)
+            if job.kind == "incremental":
+                return pipeline.index_incremental(
+                    rebuild=job.params.get("rebuild", False), cancelled=cancelled
+                )
+            if job.kind == "url":
+                return pipeline.index_url(url=job.params["url"], timeout=job.params.get("timeout", 30.0))
+            raise ValueError(f"未知任务类型: {job.kind}")
+        finally:
+            # 语料已变化，BM25 稀疏索引下次查询时重建
+            bm25_index.invalidate()
 
     ingest_queue = IngestQueue(run_fn=run_index_job, store_path="./data/index_jobs.json")
     pipeline.ingest_queue = ingest_queue
@@ -170,6 +180,7 @@ def main():
     def on_vault_change():
         """文件变化回调：增量同步（xu/wiki 由外部 LLM Wiki 管理，本系统不处理）"""
         index_sync.sync()
+        bm25_index.invalidate()  # 语料已变化，BM25 稀疏索引下次查询时重建
 
     watcher = IndexWatcher(
         source_dirs=config.documents.source_dirs,

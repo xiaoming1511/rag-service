@@ -149,7 +149,7 @@ class _StubRetriever:
         self.calls = 0
 
     def retrieve_with_context(self, query, top_k=None, where=None,
-                              use_rerank=True, max_context_length=2000):
+                              use_rerank=True, max_context_tokens=2000):
         self.calls += 1
         result = SearchResult(id="x", content="内容", score=0.9,
                               metadata={"file_name": "x.md", "file_path": "/x.md"})

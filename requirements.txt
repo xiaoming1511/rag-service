@@ -20,6 +20,10 @@ python-multipart>=0.0.6   # /v1/import 文件上传需要
 # 增量索引文件监听
 watchdog>=4.0.0
 
+# 混合检索（B3：BM25 稀疏检索 + RRF 融合）
+rank-bm25>=0.2.2
+jieba>=0.42.1           # 中文分词（注意：sdist 有重复目录项，新版 pip 需手动解包安装）
+
 # 工具
 tqdm>=4.66               # 进度条
 python-dotenv>=1.0.0     # 环境变量

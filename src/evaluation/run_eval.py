@@ -41,7 +41,7 @@ RESULTS_DIR = PROJECT_ROOT / "data" / "eval" / "results"
 BASELINE_PATH = PROJECT_ROOT / "data" / "eval" / "baselines" / "baseline.json"
 
 
-def build_components(use_rerank: bool):
+def build_components(use_rerank: bool, use_hybrid: bool = True):
     """按 settings.yaml 组装评测所需组件（与 run_api.py 同源接线）"""
     config = config_manager.load()
 
@@ -71,6 +71,8 @@ def build_components(use_rerank: bool):
         model=config.omlx.reranker_model,
         enabled=config.retrieval.enable_rerank and use_rerank,
     )
+    from src.retrieval.bm25_index import BM25Index
+
     retriever = Retriever(
         vector_store=vector_store,
         embedder=embedder,
@@ -79,6 +81,10 @@ def build_components(use_rerank: bool):
         rerank_top_k=config.retrieval.rerank_top_k,
         similarity_threshold=config.retrieval.similarity_threshold,
         rerank_threshold=config.retrieval.rerank_threshold,
+        bm25_index=BM25Index(vector_store),
+        hybrid=config.retrieval.hybrid and use_hybrid,
+        hybrid_candidates=config.retrieval.hybrid_candidates,
+        rrf_k=config.retrieval.rrf_k,
     )
     return config, client, retriever
 
@@ -141,7 +147,7 @@ def run_generation_eval(dataset: EvalDataset, client, retriever,
         question = item["question"]
         context, results = retriever.retrieve_with_context(
             query=question, top_k=top_k, use_rerank=use_rerank,
-            max_context_length=4000,
+            max_context_tokens=4000,
         )
         try:
             answer = generator.generate(query=question, context=context)
@@ -205,6 +211,7 @@ def main() -> int:
     parser.add_argument("--dataset", default=str(DEFAULT_DATASET), help="评测集路径")
     parser.add_argument("--top-k", type=int, default=5, help="检索截断 k")
     parser.add_argument("--no-rerank", action="store_true", help="关闭重排序（对比用）")
+    parser.add_argument("--no-hybrid", action="store_true", help="关闭混合检索（对比用）")
     parser.add_argument("--with-generation", action="store_true",
                         help="启用生成链路 + LLM-as-judge（较慢）")
     parser.add_argument("--save-baseline", action="store_true", help="保存为基线")
@@ -213,10 +220,10 @@ def main() -> int:
 
     dataset = EvalDataset.load(args.dataset)
     print(f"评测集: {args.dataset}（{len(dataset)} 条）")
-    print(f"参数: top_k={args.top_k} rerank={not args.no_rerank} generation={args.with_generation}")
+    print(f"参数: top_k={args.top_k} rerank={not args.no_rerank} hybrid={not args.no_hybrid} generation={args.with_generation}")
 
     use_rerank = not args.no_rerank
-    config, client, retriever = build_components(use_rerank)
+    config, client, retriever = build_components(use_rerank, use_hybrid=not args.no_hybrid)
 
     report: Dict[str, Any] = {
         "meta": {
@@ -226,6 +233,7 @@ def main() -> int:
             "dataset_size": len(dataset),
             "top_k": args.top_k,
             "use_rerank": use_rerank,
+            "use_hybrid": not args.no_hybrid,
             "embedding_model": config.omlx.embedding_model,
             "chat_model": config.omlx.chat_model,
         },

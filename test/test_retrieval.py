@@ -117,7 +117,7 @@ def test_retrieve_with_context(retriever):
     context, results = retriever.retrieve_with_context(
         "缓存的作用是什么？",
         use_rerank=True,
-        max_context_length=500,
+        max_context_tokens=500,
     )
     assert len(results) >= 1
     assert "[" in context  # 上下文带 [来源文件] 标记

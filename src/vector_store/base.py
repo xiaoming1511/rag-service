@@ -88,6 +88,16 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
+    def get_all(self) -> List[Dict[str, Any]]:
+        """
+        返回库内全部块：[{id, document, metadata}, ...]
+
+        用途：BM25 稀疏索引构建（混合检索 B3）等需要全量语料的场景。
+        个人规模（万级块以下）可直接全量拉取。
+        """
+        pass
+
+    @abstractmethod
     def delete_by_doc_id(self, doc_id: str) -> None:
         """删除某文档（doc_id 元数据）的全部块，用于文档变更/删除时的增量清理"""
         pass

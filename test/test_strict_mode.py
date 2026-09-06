@@ -21,7 +21,7 @@ class _EmptyRetriever:
     """检索永远为空"""
 
     def retrieve_with_context(self, query, top_k=None, where=None,
-                              use_rerank=True, max_context_length=2000):
+                              use_rerank=True, max_context_tokens=2000):
         return "", []
 
 
@@ -33,7 +33,7 @@ class _HitRetriever:
                               metadata={"file_name": "x.md", "file_path": "/x.md"})
 
     def retrieve_with_context(self, query, top_k=None, where=None,
-                              use_rerank=True, max_context_length=2000):
+                              use_rerank=True, max_context_tokens=2000):
         return "上下文", [self.r]
 
 

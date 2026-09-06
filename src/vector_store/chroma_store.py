@@ -186,6 +186,23 @@ class ChromaStore(BaseVectorStore):
         """
         self._collection.delete(where={"doc_id": str(doc_id)})
 
+    def get_all(self) -> List[Dict[str, Any]]:
+        """
+        返回库内全部块（BM25 索引构建等全量语料场景）
+        """
+        results = self._collection.get()
+        items = []
+        ids = results.get("ids") or []
+        documents = results.get("documents") or []
+        metadatas = results.get("metadatas") or []
+        for i, cid in enumerate(ids):
+            items.append({
+                "id": cid,
+                "document": documents[i] if i < len(documents) else "",
+                "metadata": metadatas[i] if i < len(metadatas) else {},
+            })
+        return items
+
     def get_stats(self) -> Dict[str, Any]:
         """获取存储统计信息"""
         return {

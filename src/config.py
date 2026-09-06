@@ -36,6 +36,10 @@ class RetrievalConfig(BaseModel):
     similarity_threshold: float = 0.5
     rerank_threshold: float = 0.0  # 重排序后分数阈值（低于丢弃）；0 = 关闭，建议评测基线后调参
     strict_sources: bool = False  # 严格来源模式：检索为空时不调用模型，直接告知未找到
+    context_token_budget: int = 4000  # 上下文 token 预算（B2：替代字符硬截断）
+    hybrid: bool = False              # 混合检索（B3）：已实现，实测小语料收益≈零，扩容后开启
+    hybrid_candidates: int = 20       # 混合检索每路召回候选数
+    rrf_k: int = 60                   # RRF 融合常数
 
 
 class AuthConfig(BaseModel):

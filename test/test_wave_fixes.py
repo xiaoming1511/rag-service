@@ -37,7 +37,7 @@ class _EmptyRetriever:
     """检索结果为空的桩"""
 
     def retrieve_with_context(self, query, top_k=None, where=None,
-                              use_rerank=True, max_context_length=2000):
+                              use_rerank=True, max_context_tokens=2000):
         return "", []
 
 
@@ -45,7 +45,7 @@ class _OneHitRetriever:
     """返回 1 条结果的桩"""
 
     def retrieve_with_context(self, query, top_k=None, where=None,
-                              use_rerank=True, max_context_length=2000):
+                              use_rerank=True, max_context_tokens=2000):
         result = SearchResult(
             id="d_0", content="相关内容", score=0.9,
             metadata={"file_name": "a.md", "file_path": "/x/a.md",

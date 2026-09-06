@@ -21,7 +21,7 @@ class RAGPipeline:
             self,
             retriever: Retriever,
             generator: Generator,
-            max_context_length: int = 2000,
+            max_context_tokens: int = 4000,
             include_sources: bool = True,
             response_cache: Optional[Any] = None,
             strict_sources: bool = False,
@@ -30,7 +30,7 @@ class RAGPipeline:
     ):
         self.retriever = retriever
         self.generator = generator
-        self.max_context_length = max_context_length
+        self.max_context_tokens = max_context_tokens
         self.include_sources = include_sources
         # 相同问题响应缓存（决策 D7）；None 表示不启用
         self.response_cache = response_cache
@@ -139,7 +139,7 @@ class RAGPipeline:
             query=question,
             top_k=top_k,
             use_rerank=use_rerank,
-            max_context_length=self.max_context_length,
+            max_context_tokens=self.max_context_tokens,
         )
 
         # 严格来源模式：检索结果为空 → 不调用模型，直接告知未找到
@@ -194,7 +194,7 @@ class RAGPipeline:
             query=question,
             top_k=top_k,
             use_rerank=use_rerank,
-            max_context_length=self.max_context_length,
+            max_context_tokens=self.max_context_tokens,
         )
 
         # sources_data 先初始化为空列表：检索为空或 include_sources=False 时
@@ -263,7 +263,7 @@ class RAGPipeline:
             query=question,
             top_k=top_k,
             use_rerank=use_rerank,
-            max_context_length=self.max_context_length,
+            max_context_tokens=self.max_context_tokens,
         )
         context, results = await asyncio.to_thread(retrieve)
 

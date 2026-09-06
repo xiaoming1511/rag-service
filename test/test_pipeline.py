@@ -97,7 +97,7 @@ def pipeline(tmp_path) -> RAGPipeline:
     pipe = RAGPipeline(
         retriever=retriever,
         generator=generator,
-        max_context_length=2000,
+        max_context_tokens=2000,
         include_sources=True,
     )
     pipe.indexer = indexer
