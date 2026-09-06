@@ -1,6 +1,7 @@
 """
 检索服务
-整合向量检索、BM25 稀疏检索（混合检索 B3）、RRF 融合与重排序
+整合向量检索、BM25 稀疏检索（混合检索 B3）、RRF 融合与重排序、
+父子块召回（B4：检索时父块扩展）
 """
 
 from typing import List, Optional, Dict, Any
@@ -10,6 +11,7 @@ from src.embedding.embedder import Embedder
 from src.retrieval.reranker import Reranker
 from src.retrieval.bm25_index import BM25Index, rrf_fuse
 from src.retrieval.context_builder import build_context
+from src.retrieval.parent_expander import expand_to_parents
 
 
 class Retriever:
@@ -28,6 +30,8 @@ class Retriever:
             hybrid: bool = True,
             hybrid_candidates: int = 20,
             rrf_k: int = 60,
+            parent_expansion: bool = False,
+            parent_max_tokens: int = 1600,
     ):
         """
         初始化检索服务
@@ -47,6 +51,9 @@ class Retriever:
             hybrid: 是否启用混合检索（稠密 + BM25 RRF 融合）
             hybrid_candidates: 每路召回的候选数量（融合前）
             rrf_k: RRF 融合常数（默认 60）
+            parent_expansion: 父子块召回（B4 方案 A）：retrieve_with_context
+                把命中小块实时聚合为父块进上下文（来源列表仍为命中小块）
+            parent_max_tokens: 单个父块的 token 上限
         """
         self.vector_store = vector_store
         self.embedder = embedder
@@ -59,6 +66,8 @@ class Retriever:
         self.hybrid = hybrid and bm25_index is not None
         self.hybrid_candidates = hybrid_candidates
         self.rrf_k = rrf_k
+        self.parent_expansion = parent_expansion
+        self.parent_max_tokens = parent_max_tokens
 
     # ------------------------------------------------------------------
     # 内部：各路召回
@@ -173,5 +182,15 @@ class Retriever:
             tuple[str, List[SearchResult]]: (上下文文本, 检索结果列表)
         """
         results = self.retrieve(query, top_k, where, use_rerank)
-        context = build_context(results, max_context_tokens)
+
+        # B4 父子块召回（方案 A）：上下文用父块（兄弟块聚合），来源列表
+        # 仍返回命中小块（分数与排序不变，展示粒度不膨胀）
+        if self.parent_expansion:
+            context_results = expand_to_parents(
+                results, self.vector_store, self.parent_max_tokens,
+            )
+        else:
+            context_results = results
+
+        context = build_context(context_results, max_context_tokens)
         return context, results

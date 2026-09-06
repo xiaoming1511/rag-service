@@ -89,6 +89,8 @@ def main():
         hybrid=config.retrieval.hybrid,
         hybrid_candidates=config.retrieval.hybrid_candidates,
         rrf_k=config.retrieval.rrf_k,
+        parent_expansion=config.retrieval.parent_expansion,
+        parent_max_tokens=config.retrieval.parent_max_tokens,
     )
 
     # 生成器（模型路由：chat/rewrite/research_subqueries 可分别配置模型）

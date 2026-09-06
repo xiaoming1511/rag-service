@@ -40,6 +40,8 @@ class RetrievalConfig(BaseModel):
     hybrid: bool = False              # 混合检索（B3）：已实现，实测小语料收益≈零，扩容后开启
     hybrid_candidates: int = 20       # 混合检索每路召回候选数
     rrf_k: int = 60                   # RRF 融合常数
+    parent_expansion: bool = True     # 父子块召回（B4，方案 A）：命中小块实时聚合父块入上下文
+    parent_max_tokens: int = 1600     # 单个父块 token 上限（超出以命中块为中心截窗）
 
 
 class AuthConfig(BaseModel):

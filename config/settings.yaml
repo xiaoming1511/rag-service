@@ -29,6 +29,8 @@ retrieval:
   hybrid: false               # 混合检索（B3）：已实现；实测 8 文档规模收益≈零，语料扩容后开启
   hybrid_candidates: 20       # 每路召回候选数（融合前）
   rrf_k: 60                   # RRF 融合常数（论文默认 60）
+  parent_expansion: true      # 父子块召回（B4，方案 A）：命中小块实时聚合兄弟块为父块进上下文，零重建
+  parent_max_tokens: 1600     # 单个父块 token 上限（超出以命中块为中心截窗）
 
 # 生成配置
 generation:

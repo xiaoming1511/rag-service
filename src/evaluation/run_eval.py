@@ -32,6 +32,7 @@ from src.config import config_manager
 from src.evaluation.dataset import EvalDataset, normalize_doc_id
 from src.evaluation.metrics import aggregate, parse_judge_score
 from src.logging_setup import get_logger
+from src.retrieval.context_builder import estimate_tokens
 
 logger = get_logger(__name__)
 
@@ -41,7 +42,8 @@ RESULTS_DIR = PROJECT_ROOT / "data" / "eval" / "results"
 BASELINE_PATH = PROJECT_ROOT / "data" / "eval" / "baselines" / "baseline.json"
 
 
-def build_components(use_rerank: bool, use_hybrid: bool = True):
+def build_components(use_rerank: bool, use_hybrid: bool = True,
+                     use_parent: bool = True):
     """按 settings.yaml 组装评测所需组件（与 run_api.py 同源接线）"""
     config = config_manager.load()
 
@@ -85,6 +87,8 @@ def build_components(use_rerank: bool, use_hybrid: bool = True):
         hybrid=config.retrieval.hybrid and use_hybrid,
         hybrid_candidates=config.retrieval.hybrid_candidates,
         rrf_k=config.retrieval.rrf_k,
+        parent_expansion=config.retrieval.parent_expansion and use_parent,
+        parent_max_tokens=config.retrieval.parent_max_tokens,
     )
     return config, client, retriever
 
@@ -99,7 +103,9 @@ def run_retrieval_eval(dataset: EvalDataset, retriever, top_k: int,
     for item in dataset.items:
         t0 = time.perf_counter()
         try:
-            results = retriever.retrieve(
+            # 用 retrieve_with_context：同时拿到结果列表与装配后的上下文
+            #（context_tokens 统计用于量化 B2 token 预算 / B4 父块的完整性收益）
+            context, results = retriever.retrieve_with_context(
                 query=item["question"],
                 top_k=top_k,
                 use_rerank=use_rerank,
@@ -107,7 +113,7 @@ def run_retrieval_eval(dataset: EvalDataset, retriever, top_k: int,
             error = None
         except Exception as e:  # 单条失败不中断整体评测
             logger.warning("检索失败 [%s]: %s", item["id"], e)
-            results, error = [], str(e)
+            results, context, error = [], "", str(e)
 
         ranked = [normalize_doc_id(r.metadata.get("file_name", "")) for r in results]
         ranked_lists.append(ranked)
@@ -121,11 +127,15 @@ def run_retrieval_eval(dataset: EvalDataset, retriever, top_k: int,
             "ranked_docs": ranked,
             "first_hit_rank": first_hit,
             "scores": [round(r.score, 4) for r in results],
+            "context_tokens": estimate_tokens(context),
             "error": error,
             "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
         })
 
     metrics = aggregate(ranked_lists, gold_sets, k=top_k)
+    ctx_list = [d["context_tokens"] for d in details if not d["error"]]
+    if ctx_list:
+        metrics["context_tokens_mean"] = round(sum(ctx_list) / len(ctx_list), 1)
     return {"metrics": metrics, "details": details}
 
 
@@ -212,6 +222,7 @@ def main() -> int:
     parser.add_argument("--top-k", type=int, default=5, help="检索截断 k")
     parser.add_argument("--no-rerank", action="store_true", help="关闭重排序（对比用）")
     parser.add_argument("--no-hybrid", action="store_true", help="关闭混合检索（对比用）")
+    parser.add_argument("--no-parent", action="store_true", help="关闭父子块召回（对比用）")
     parser.add_argument("--with-generation", action="store_true",
                         help="启用生成链路 + LLM-as-judge（较慢）")
     parser.add_argument("--save-baseline", action="store_true", help="保存为基线")
@@ -220,10 +231,12 @@ def main() -> int:
 
     dataset = EvalDataset.load(args.dataset)
     print(f"评测集: {args.dataset}（{len(dataset)} 条）")
-    print(f"参数: top_k={args.top_k} rerank={not args.no_rerank} hybrid={not args.no_hybrid} generation={args.with_generation}")
+    print(f"参数: top_k={args.top_k} rerank={not args.no_rerank} hybrid={not args.no_hybrid} parent={not args.no_parent} generation={args.with_generation}")
 
     use_rerank = not args.no_rerank
-    config, client, retriever = build_components(use_rerank, use_hybrid=not args.no_hybrid)
+    config, client, retriever = build_components(
+        use_rerank, use_hybrid=not args.no_hybrid, use_parent=not args.no_parent,
+    )
 
     report: Dict[str, Any] = {
         "meta": {
@@ -234,6 +247,7 @@ def main() -> int:
             "top_k": args.top_k,
             "use_rerank": use_rerank,
             "use_hybrid": not args.no_hybrid,
+            "use_parent": not args.no_parent,
             "embedding_model": config.omlx.embedding_model,
             "chat_model": config.omlx.chat_model,
         },
