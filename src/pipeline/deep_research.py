@@ -13,6 +13,10 @@ from typing import Any, Dict, List, Optional
 from src.retrieval.retriever import Retriever
 from src.generation.generator import Generator
 
+from src.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 def parse_sub_queries(text: str, count: Optional[int] = None) -> List[str]:
     """
@@ -103,7 +107,7 @@ class DeepResearch:
             subs = parse_sub_queries(raw, count=self.sub_query_count)
             return subs or [question]
         except Exception as e:
-            print(f"⚠️ 子查询生成失败，退化为原问题: {e}")
+            logger.warning("⚠️ 子查询生成失败，退化为原问题: %s", e)
             return [question]
 
     # ================================================================
@@ -148,7 +152,7 @@ class DeepResearch:
 
             # 3. 新信息增益停止：本轮没有新结果则提前结束
             if round_idx > 0 and len(merged) == before:
-                print("⏹️ Deep Research 提前停止（本轮无新信息）")
+                logger.info("⏹️ Deep Research 提前停止（本轮无新信息）")
                 break
 
             ranked = sorted(merged.values(), key=lambda r: r.score, reverse=True)
@@ -233,5 +237,5 @@ class DeepResearch:
             raw = client.chat_sync(model=model, messages=messages, max_tokens=200, temperature=0.3)
             return parse_sub_queries(raw, count=count)
         except Exception as e:
-            print(f"⚠️ 追问生成失败: {e}")
+            logger.warning("⚠️ 追问生成失败: %s", e)
             return []

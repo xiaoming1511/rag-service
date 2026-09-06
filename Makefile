@@ -1,7 +1,7 @@
 # ============================================================
 # RAG Service 便捷命令（无需上传 GitHub 也可本地用）
 # ============================================================
-.PHONY: install test build-plugin install-plugin export-demo clean
+.PHONY: install test eval eval-gen build-plugin install-plugin export-demo clean
 
 # 安装 Python 依赖（含测试用）
 install:
@@ -10,6 +10,14 @@ install:
 # 运行全部测试（无 oMLX 时集成测试自动跳过）
 test:
 	cd $$(dirname $(realpath $(firstword $(MAKEFILE_LIST)))) && .venv/bin/python -m pytest test/ -q
+
+# 检索质量评测（Recall@5 / MRR@5 / Hit@5 / Precision@5，需 oMLX 在线）
+eval:
+	cd $$(dirname $(realpath $(firstword $(MAKEFILE_LIST)))) && .venv/bin/python -m src.evaluation.run_eval
+
+# 检索 + 生成质量评测（含 LLM-as-judge，较慢）
+eval-gen:
+	cd $$(dirname $(realpath $(firstword $(MAKEFILE_LIST)))) && .venv/bin/python -m src.evaluation.run_eval --with-generation
 
 # 构建 Obsidian 插件
 build-plugin:

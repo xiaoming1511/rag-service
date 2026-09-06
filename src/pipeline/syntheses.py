@@ -17,6 +17,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from src.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 def resolve_syntheses_dir(
     source_dirs: List[str],
@@ -112,5 +116,5 @@ def save_syntheses(
         file_path.write_text(content, encoding="utf-8")
         return file_path
     except Exception as e:
-        print(f"⚠️ 问答沉淀写入失败: {e}")
+        logger.warning("问答沉淀写入失败: %s", e)
         return None

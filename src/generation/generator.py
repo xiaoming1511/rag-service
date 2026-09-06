@@ -8,6 +8,10 @@ from typing import List, Dict, Any, Optional, Generator, AsyncGenerator
 from src.embedding.client import OMLXClient
 from src.generation.model_router import ModelRouter
 
+from src.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 class Generator:
     """生成服务（同步 + 异步）"""
@@ -269,7 +273,7 @@ class Generator:
             rewritten = (rewritten or "").strip()
             return rewritten if rewritten else question
         except Exception as e:
-            print(f"⚠️ 追问改写失败，使用原问题: {e}")
+            logger.warning("追问改写失败，使用原问题: %s", e)
             return question
 
     async def rewrite_question_async(
@@ -296,7 +300,7 @@ class Generator:
             rewritten = (rewritten or "").strip()
             return rewritten if rewritten else question
         except Exception as e:
-            print(f"⚠️ 追问改写失败，使用原问题: {e}")
+            logger.warning("追问改写失败，使用原问题: %s", e)
             return question
 
     # ================================================================

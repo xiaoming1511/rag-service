@@ -13,6 +13,10 @@ from datetime import datetime
 
 from src.document.parsers import DEFAULT_PARSERS, Parser
 
+from src.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class Document:
@@ -86,7 +90,7 @@ class DocumentLoader:
 
         for source_dir in self.source_dirs:
             if not source_dir.exists():
-                print(f"⚠️ 目录不存在，已跳过: {source_dir}")
+                logger.warning("目录不存在，已跳过: %s", source_dir)
                 continue
 
             for file_path in self._walk_files(source_dir):
@@ -137,18 +141,18 @@ class DocumentLoader:
             )
             response.raise_for_status()
         except Exception as e:
-            print(f"⚠️ 抓取 URL 失败: {url} - {e}")
+            logger.warning("抓取 URL 失败: %s - %s", url, e)
             return None
 
         parser = self._parsers.get(".html")
         if parser is None:
-            print("⚠️ 未注册 HTML 解析器，无法解析网页")
+            logger.warning("未注册 HTML 解析器，无法解析网页")
             return None
 
         try:
             parsed = parser.parse_bytes(response.content, url)
         except Exception as e:
-            print(f"⚠️ 解析网页失败: {url} - {e}")
+            logger.warning("解析网页失败: %s - %s", url, e)
             return None
 
         content = parsed.content.strip()
@@ -211,7 +215,7 @@ class DocumentLoader:
         try:
             parsed = parser.parse_file(file_path)
         except Exception as e:
-            print(f"⚠️ 解析文件失败: {file_path} - {e}")
+            logger.warning("解析文件失败: %s - %s", file_path, e)
             return None
 
         content = parsed.content.strip()
@@ -276,7 +280,7 @@ class DocumentLoader:
                     "source_file": file_name,
                 })
             except Exception as e:
-                print(f"⚠️ 附件图片保存失败: {e}")
+                logger.warning("附件图片保存失败: %s", e)
         return saved
 
     @staticmethod

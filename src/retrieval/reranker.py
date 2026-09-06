@@ -10,6 +10,10 @@ import httpx
 from src.vector_store.base import SearchResult
 from src.embedding.client import OMLXClient
 
+from src.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 class Reranker:
     """重排序服务"""
@@ -72,7 +76,7 @@ class Reranker:
 
         except Exception as e:
             # 重排序失败时回退到原始相似度结果
-            print(f"⚠️ 重排序失败: {e}，返回原始结果")
+            logger.warning("重排序失败: %s，返回原始结果", e)
             return results[:top_k] if top_k else results
 
     def _call_reranker(self, pairs: List[List[str]]) -> List[float]:

@@ -35,6 +35,11 @@ class OMLXClient:
         self._sync_client: Optional[OpenAI] = None
         self._async_client: Optional[AsyncOpenAI] = None
 
+    # oMLX 服务端（uvicorn）在 HTTP keep-alive 连接复用时，同一连接的
+    # 第二个及以后请求会返回 404（实测 httpx 复现：200→404→404...）。
+    # 强制每请求使用独立连接规避；本地回环地址下连接开销可忽略。
+    _KEEPALIVE_BYPASS_HEADERS = {"Connection": "close"}
+
     @property
     def sync(self) -> OpenAI:
         """获取同步客户端"""
@@ -43,6 +48,7 @@ class OMLXClient:
                 base_url=self.base_url,
                 api_key=self.api_key,
                 timeout=self.timeout,
+                default_headers=self._KEEPALIVE_BYPASS_HEADERS,
             )
         return self._sync_client
 
@@ -54,6 +60,7 @@ class OMLXClient:
                 base_url=self.base_url,
                 api_key=self.api_key,
                 timeout=self.timeout,
+                default_headers=self._KEEPALIVE_BYPASS_HEADERS,
             )
         return self._async_client
 

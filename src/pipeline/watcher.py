@@ -12,6 +12,10 @@ from typing import Callable, List, Optional
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from src.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 class SyncEventHandler(FileSystemEventHandler):
     """
@@ -50,7 +54,7 @@ class SyncEventHandler(FileSystemEventHandler):
         try:
             self.on_change()
         except Exception as e:  # 监听回调不应让观察者线程崩溃
-            print(f"⚠️ 增量同步回调异常: {e}")
+            logger.warning("增量同步回调异常: %s", e)
 
 
 class IndexWatcher:
@@ -88,12 +92,12 @@ class IndexWatcher:
             if path.exists():
                 observer.schedule(handler, str(path), recursive=True)
             else:
-                print(f"⚠️ 监听目录不存在，已跳过: {path}")
+                logger.warning("监听目录不存在，已跳过: %s", path)
 
         observer.daemon = True  # 守护线程：进程退出时自动结束
         observer.start()
         self._observer = observer
-        print(f"👀 增量索引监听已启动: {self.source_dirs} (去抖 {self.debounce}s)")
+        logger.info("👀 增量索引监听已启动: %s (去抖 %.1fs)", self.source_dirs, self.debounce)
 
     def stop(self):
         """停止监听"""
@@ -101,4 +105,4 @@ class IndexWatcher:
             self._observer.stop()
             self._observer.join(timeout=5)
             self._observer = None
-            print("⏹️ 增量索引监听已停止")
+            logger.info("⏹️ 增量索引监听已停止")

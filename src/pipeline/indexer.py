@@ -15,6 +15,9 @@ from src.document.loader import DocumentLoader, Document
 from src.document.chunker import Chunker, Chunk
 from src.embedding.embedder import Embedder
 from src.vector_store.base import BaseVectorStore
+from src.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 
 class Indexer:
@@ -250,7 +253,7 @@ class Indexer:
         # 2. 检查是否已存在（按 URL 文档 ID）
         existing = self.vector_store.get_by_doc_id(document.id)
         if existing:
-            print(f"⚠️ 网页已索引，跳过: {url}")
+            logger.warning("网页已索引，跳过: %s", url)
             return {"success": True, "skipped": True, "url": url}
 
         # 3. 分块

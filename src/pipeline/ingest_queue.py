@@ -18,6 +18,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from src.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class IndexJob:
@@ -89,9 +93,9 @@ class IngestQueue:
                     job.progress = "已从上次中断恢复，重新排队"
                 self._jobs.append(job)
             if self._jobs:
-                print(f"♻️ 摄入队列已恢复 {len(self._jobs)} 个历史任务")
+                logger.info("♻️ 摄入队列已恢复 %d 个历史任务", len(self._jobs))
         except Exception as e:
-            print(f"⚠️ 摄入队列持久化文件读取失败（忽略）: {e}")
+            logger.warning("摄入队列持久化文件读取失败（忽略）: %s", e)
 
     def _save(self):
         try:
@@ -99,7 +103,7 @@ class IngestQueue:
             with open(self.store_path, "w", encoding="utf-8") as f:
                 json.dump({"jobs": [j.to_dict() for j in self._jobs]}, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"⚠️ 摄入队列持久化写入失败: {e}")
+            logger.warning("摄入队列持久化写入失败: %s", e)
 
     # ================================================================
     # 提交与查询
@@ -190,7 +194,7 @@ class IngestQueue:
             except Exception as e:
                 job.status = "failed"
                 job.error = str(e)
-                print(f"❌ 摄入任务失败 [{job.kind}/{job.id}]: {e}")
+                logger.error("❌ 摄入任务失败 [%s/%s]: %s", job.kind, job.id, e)
             finally:
                 job.finished_at = time.time()
                 with self._lock:

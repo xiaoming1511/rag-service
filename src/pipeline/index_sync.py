@@ -66,10 +66,10 @@ class IndexSync:
             with open(self.manifest_path, "r", encoding="utf-8") as f:
                 self.manifest = json.load(f)
             if self.manifest.get("version") != self.MANIFEST_VERSION:
-                print("⚠️ manifest 版本不匹配，重置清单")
+                logger.warning("manifest 版本不匹配，重置清单")
                 self.manifest = {"version": self.MANIFEST_VERSION, "docs": {}}
         except Exception as e:
-            print(f"⚠️ manifest 读取失败，重置清单: {e}")
+            logger.warning("manifest 读取失败，重置清单: %s", e)
             self.manifest = {"version": self.MANIFEST_VERSION, "docs": {}}
 
     def save_manifest(self):
