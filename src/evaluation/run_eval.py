@@ -26,7 +26,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from src.config import config_manager
 from src.evaluation.dataset import EvalDataset, normalize_doc_id
@@ -42,9 +42,23 @@ RESULTS_DIR = PROJECT_ROOT / "data" / "eval" / "results"
 BASELINE_PATH = PROJECT_ROOT / "data" / "eval" / "baselines" / "baseline.json"
 
 
+def _fmt_metric(v: Any) -> str:
+    """指标格式化：None 显示 n/a（分母不可得），不伪装成 0"""
+    if v is None:
+        return "n/a"
+    if isinstance(v, float):
+        return f"{v:.4f}"
+    return str(v)
+
+
 def build_components(use_rerank: bool, use_hybrid: bool = True,
                      use_parent: bool = True):
-    """按 settings.yaml 组装评测所需组件（与 run_api.py 同源接线）"""
+    """按 settings.yaml 组装评测所需组件（与 run_api.py 同源接线）
+
+    Returns:
+        (config, client, retriever, vector_store) —— vector_store 用于统计
+        gold 文档的块数（块级 Recall@k 的分母）
+    """
     config = config_manager.load()
 
     from src.embedding.client import OMLXClient
@@ -86,16 +100,46 @@ def build_components(use_rerank: bool, use_hybrid: bool = True,
         bm25_index=BM25Index(vector_store),
         hybrid=config.retrieval.hybrid and use_hybrid,
         hybrid_candidates=config.retrieval.hybrid_candidates,
+        recall_candidates=config.retrieval.recall_candidates,
+        rerank_candidates=config.retrieval.rerank_candidates,
+        synthesis_weight=config.retrieval.synthesis_weight,
         rrf_k=config.retrieval.rrf_k,
         parent_expansion=config.retrieval.parent_expansion and use_parent,
         parent_max_tokens=config.retrieval.parent_max_tokens,
     )
-    return config, client, retriever
+    return config, client, retriever, vector_store
+
+
+def build_gold_chunk_totals(dataset: EvalDataset, vector_store) -> Dict[str, int]:
+    """统计每个文档在向量库中的块数（块级 Recall@k 的分母）
+
+    块级 Recall 的分母必须是「gold 文档一共有多少块」，只有向量库知道。
+    取不到时返回空 dict —— 上层会把它翻译成 `chunk_recall@k = None`，
+    而不是伪装成 0.0。
+    """
+    from collections import Counter
+
+    totals: Counter = Counter()
+    try:
+        for raw in vector_store.get_all():
+            name = normalize_doc_id((raw.get("metadata") or {}).get("file_name", ""))
+            if name:
+                totals[name] += 1
+    except Exception as e:
+        logger.warning("无法统计文档块数，块级 Recall 将不可用: %s", e)
+        return {}
+    return dict(totals)
 
 
 def run_retrieval_eval(dataset: EvalDataset, retriever, top_k: int,
-                       use_rerank: bool) -> Dict[str, Any]:
-    """逐条评测检索，返回指标与逐项明细"""
+                       use_rerank: bool,
+                       doc_chunk_totals: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
+    """逐条评测检索，返回指标与逐项明细
+
+    Args:
+        doc_chunk_totals: {文档名: 该文档块数}，用于块级 Recall 的分母；
+            None / 空 dict 时 `chunk_recall@k` 记为 None
+    """
     ranked_lists: List[List[str]] = []
     gold_sets = [dataset.gold_set(it) for it in dataset.items]
     details: List[Dict[str, Any]] = []
@@ -132,7 +176,16 @@ def run_retrieval_eval(dataset: EvalDataset, retriever, top_k: int,
             "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
         })
 
-    metrics = aggregate(ranked_lists, gold_sets, k=top_k)
+    # 每条 query 的块级 Recall 分母 = 其 gold 文档的块数之和
+    totals = doc_chunk_totals or {}
+    chunk_totals: Optional[List[int]] = None
+    if totals:
+        chunk_totals = [
+            sum(totals.get(d, 0) for d in gold_sets[i])
+            for i in range(len(dataset.items))
+        ]
+
+    metrics = aggregate(ranked_lists, gold_sets, k=top_k, chunk_totals=chunk_totals)
     ctx_list = [d["context_tokens"] for d in details if not d["error"]]
     if ctx_list:
         metrics["context_tokens_mean"] = round(sum(ctx_list) / len(ctx_list), 1)
@@ -155,10 +208,18 @@ def run_generation_eval(dataset: EvalDataset, client, retriever,
     faith_scores, rel_scores, details, errors = [], [], [], 0
     for item in dataset.items:
         question = item["question"]
-        context, results = retriever.retrieve_with_context(
-            query=question, top_k=top_k, use_rerank=use_rerank,
-            max_context_tokens=4000,
-        )
+        try:
+            context, results = retriever.retrieve_with_context(
+                query=question, top_k=top_k, use_rerank=use_rerank,
+                # 取配置预算而非写死 4000：否则 settings.yaml 调大了预算，
+                # 评测仍按 4000 测，指标与线上实际上下文不符
+                max_context_tokens=config.retrieval.context_token_budget,
+            )
+        except Exception as e:  # 与 run_retrieval_eval 一致：单条失败不中断整体评测
+            logger.warning("检索失败 [%s]: %s", item["id"], e)
+            details.append({"id": item["id"], "error": str(e)})
+            errors += 1
+            continue
         try:
             answer = generator.generate(query=question, context=context)
         except Exception as e:
@@ -202,18 +263,37 @@ def run_generation_eval(dataset: EvalDataset, client, retriever,
 
 
 def compare_with_baseline(current: Dict[str, float]) -> Dict[str, Any]:
-    """与已保存基线对比，返回增量"""
+    """与已保存基线对比，返回增量
+
+    基线文件是外部产物（可能被手改/被旧版本写过），因此对结构做防御性校验，
+    并把 baseline_meta 归一为 dict——否则调用方 `comparison["baseline_meta"].get(...)`
+    会在基线缺 meta 时抛 AttributeError。
+    """
     if not BASELINE_PATH.exists():
         return {"baseline": None}
     with open(BASELINE_PATH, "r", encoding="utf-8") as f:
         baseline = json.load(f)
-    base_metrics = baseline.get("metrics", {})
+    if not isinstance(baseline, dict):
+        return {"baseline": None, "error": "基线文件格式不可识别（应为 JSON 对象）"}
+    meta = baseline.get("meta")
+    base_metrics = baseline.get("metrics")
+    if not isinstance(meta, dict) or not isinstance(base_metrics, dict):
+        return {"baseline": None, "error": "基线文件缺少有效的 meta / metrics"}
+    comparable = [k for k in current if k in base_metrics]
+    if not comparable:
+        # 指标口径改过（如 D5-1 的 doc_*/chunk_* 重命名）→ 旧基线键全部失配。
+        # 此时「没有差异」会误导成「指标持平」，必须显式说明。
+        return {
+            "baseline": None,
+            "baseline_meta": meta,
+            "error": "基线指标口径与当前不一致（键不重叠），请用 --save-baseline 重建基线",
+        }
     diff = {
         k: round(current[k] - base_metrics[k], 4)
-        for k in current if k in base_metrics and base_metrics[k] is not None
-        and current[k] is not None
+        for k in comparable
+        if base_metrics[k] is not None and current[k] is not None
     }
-    return {"baseline_meta": baseline.get("meta"), "diff": diff}
+    return {"baseline_meta": meta, "diff": diff}
 
 
 def main() -> int:
@@ -234,9 +314,14 @@ def main() -> int:
     print(f"参数: top_k={args.top_k} rerank={not args.no_rerank} hybrid={not args.no_hybrid} parent={not args.no_parent} generation={args.with_generation}")
 
     use_rerank = not args.no_rerank
-    config, client, retriever = build_components(
+    config, client, retriever, vector_store = build_components(
         use_rerank, use_hybrid=not args.no_hybrid, use_parent=not args.no_parent,
     )
+
+    # gold 文档块数（块级 Recall 的分母）；向量库不可用时退化为 None
+    doc_chunk_totals = build_gold_chunk_totals(dataset, vector_store)
+    if not doc_chunk_totals:
+        print("提示: 未能统计文档块数，chunk_recall@k 将显示为 n/a")
 
     report: Dict[str, Any] = {
         "meta": {
@@ -250,15 +335,29 @@ def main() -> int:
             "use_parent": not args.no_parent,
             "embedding_model": config.omlx.embedding_model,
             "chat_model": config.omlx.chat_model,
+            "metric_schema": "doc/chunk-v2",
         },
     }
 
-    # 检索指标
-    retrieval = run_retrieval_eval(dataset, retriever, args.top_k, use_rerank)
+    # 检索指标（文档级 + 块级两套）
+    retrieval = run_retrieval_eval(
+        dataset, retriever, args.top_k, use_rerank,
+        doc_chunk_totals=doc_chunk_totals,
+    )
     report["retrieval"] = retrieval
     print("\n=== 检索指标 ===")
+    print("  [文档级]")
     for k, v in retrieval["metrics"].items():
-        print(f"  {k:<16} {v:.4f}")
+        if k.startswith("doc_"):
+            print(f"    {k:<20} {_fmt_metric(v)}")
+    print("  [块级]")
+    for k, v in retrieval["metrics"].items():
+        if k.startswith("chunk_"):
+            print(f"    {k:<20} {_fmt_metric(v)}")
+    print("  [其他]")
+    for k, v in retrieval["metrics"].items():
+        if not k.startswith(("doc_", "chunk_")):
+            print(f"    {k:<20} {_fmt_metric(v)}")
 
     # 生成指标（可选）
     if args.with_generation:
@@ -279,6 +378,8 @@ def main() -> int:
         for k, d in comparison["diff"].items():
             sign = "+" if d >= 0 else ""
             print(f"  {k:<16} {sign}{d:.4f}")
+    elif comparison.get("error"):
+        print(f"\n基线对比跳过: {comparison['error']}")
     report["comparison"] = comparison
 
     # 落盘报告

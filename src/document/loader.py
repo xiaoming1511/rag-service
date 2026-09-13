@@ -39,6 +39,16 @@ class DocumentLoader:
     # watchdog 等需要忽略的目录（用户确认：继续排除 wiki 目录）
     EXCLUDE_DIRS = {"wiki", "node_modules"}
 
+    # 结构性元数据键：由加载器按磁盘/网络事实写入，**不接受**解析器元数据
+    # 或笔记 frontmatter 覆盖（frontmatter 属文档内容，实测写 file_path: /etc/passwd
+    # 即可污染 metadata）。
+    # 注意 title 不在此列——"frontmatter 的 title 优先于正文 H1"是既有约定，
+    # 由解析器与加载器的合并顺序保证（见 _load_single_file）。
+    STRUCTURAL_KEYS = frozenset({
+        'file_path', 'file_name', 'file_size', 'modified_time', 'source_dir', 'format',
+        'source', 'url', 'fetch_time',
+    })
+
     def __init__(
             self,
             source_dirs: List[str],
@@ -132,6 +142,20 @@ class DocumentLoader:
         """
         import httpx
 
+        # SSRF 防护：仅 http/https 且目标非内网/回环/元数据地址。
+        # 内网文档站/离线测试可通过 RAG_ALLOW_PRIVATE_URLS=1 或
+        # config 的 security.allow_private_urls 放行。
+        from src.security.url_safety import validate_public_url, UnsafeURLError
+        try:
+            validate_public_url(url)
+        except UnsafeURLError as e:
+            logger.warning(
+                "拒绝访问不安全的 URL: %s（如需抓取内网地址，"
+                "请设置 RAG_ALLOW_PRIVATE_URLS=1 或 config 的 "
+                "security.allow_private_urls: true）", e,
+            )
+            return None
+
         try:
             response = httpx.get(
                 url,
@@ -164,8 +188,9 @@ class DocumentLoader:
         host = urlparse(url).netloc or url
         file_name = parsed.title or host
 
-        # 构建元数据
-        metadata = {
+        # 构建元数据（合并顺序与 _load_single_file 一致：解析器元数据后置，
+        # 但结构性字段不参与被覆盖）
+        metadata: Dict[str, Any] = {
             'file_path': url,
             'file_name': file_name,
             'source': 'url',
@@ -173,7 +198,10 @@ class DocumentLoader:
             'title': parsed.title or "",
             'fetch_time': datetime.now().isoformat(),
         }
-        metadata.update(parsed.metadata)
+        metadata.update({
+            k: v for k, v in (parsed.metadata or {}).items()
+            if k not in self.STRUCTURAL_KEYS
+        })
 
         doc_id = self._generate_id(url)
         return Document(
@@ -200,6 +228,9 @@ class DocumentLoader:
             ]
 
             for filename in filenames:
+                # 与目录过滤对称：跳过隐藏文件（.DS_Store、.hidden.md 等）
+                if filename.startswith('.'):
+                    continue
                 file_path = Path(root) / filename
                 if file_path.suffix.lower() in self.extensions:
                     files.append(file_path)
@@ -214,8 +245,8 @@ class DocumentLoader:
 
         try:
             parsed = parser.parse_file(file_path)
-        except Exception as e:
-            logger.warning("解析文件失败: %s - %s", file_path, e)
+        except Exception:
+            logger.exception("解析文件失败: %s", file_path)
             return None
 
         content = parsed.content.strip()
@@ -225,8 +256,11 @@ class DocumentLoader:
         # 生成文档 ID（附件目录等需要）
         doc_id = self._generate_id(str(file_path))
 
-        # 构建元数据
-        metadata = {
+        # 元数据合并顺序必须保持"解析器元数据后置"（否则会破坏既有约定：
+        # frontmatter 的 title 优先于正文 H1，见 markdown 解析器与
+        # test_multi_format::test_load_all_formats）。但结构性字段不参与被覆盖，
+        # 因此先剔除解析器元数据里的同名键，再整体合并。
+        metadata: Dict[str, Any] = {
             'file_path': str(file_path),
             'file_name': file_path.name,
             'file_size': file_path.stat().st_size,
@@ -236,7 +270,10 @@ class DocumentLoader:
         }
         if parsed.title:
             metadata['title'] = parsed.title
-        metadata.update(parsed.metadata)
+        metadata.update({
+            k: v for k, v in (parsed.metadata or {}).items()
+            if k not in self.STRUCTURAL_KEYS
+        })
 
         # 多模态：保存提取的内嵌图片到附件目录，并记录到元数据
         if parsed.images:

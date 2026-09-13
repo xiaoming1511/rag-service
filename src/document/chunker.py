@@ -10,6 +10,83 @@ from dataclasses import dataclass, field
 from src.document.loader import Document
 
 
+def _is_fence(line: str) -> bool:
+    """围栏代码块标记行（``` 或 ~~~，允许带语言名）"""
+    s = line.strip()
+    return s.startswith("```") or s.startswith("~~~")
+
+
+def _split_row(line: str) -> List[str]:
+    """拆 Markdown 表格行（去掉首尾 |）为单元格列表"""
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [c.strip() for c in s.split("|")]
+
+
+def _is_sep_row(line: str) -> bool:
+    """表格分隔行：| --- | :--: | 等（仅含 - : 空格）"""
+    cells = _split_row(line)
+    return len(cells) >= 1 and all(
+        c == "" or re.fullmatch(r"[\s:\-]+", c) for c in cells
+    ) and any("-" in c for c in cells)
+
+
+def _clean_heading_segment(text: str) -> str:
+    """清洗标题段：去掉 emoji/图标与前缀序号，得到可用的名词短语"""
+    s = re.sub(r"^[\U0001F000-\U0001FAFF\u2600-\u27BF\s]+", "", text)  # emoji/符号前缀
+    s = re.sub(r"^[\d一二三四五六七八九十]+[、.．:：]\s*", "", s)  # “四、”“1.” 序数
+    return s.strip()
+
+
+def _tables_to_prose(text: str, *, subject: str = "", table_heading: str = "") -> str:
+    """
+    把 Markdown 表格块转成流畅散文句，再供分块/嵌入。
+
+    背景：bge 系列模型对管道符表格语义打分极低；实测同一内容表格版
+    rerank≈0.003 / cos≈0.51，而带「{文档}的全部{小节}如下：」引导句、
+    逗号串联条目（" /v1/health GET 健康检查，…"）的散文版 rerank≈0.999 /
+    cos≈0.81，明显高于最高分问答沉淀（0.95 / 0.76）。引导句与查询
+    「…的全部API接口」互为近义，是 rerank 翻盘的关键。
+    源文件不变，仅影响入块文本与嵌入向量。
+    """
+    lines = text.split("\n")
+    out: List[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        if line.lstrip().startswith("|"):
+            block: List[str] = []
+            while i < n and lines[i].lstrip().startswith("|"):
+                block.append(lines[i].lstrip())
+                i += 1
+            if len(block) >= 2 and _is_sep_row(block[1]):
+                rows = [_split_row(r) for r in block[2:]]
+                row_texts: List[str] = []
+                for cells in rows:
+                    # 每行单元格以空格串联（不重复表头词），行间用顿/逗号
+                    items = [c for c in cells if c]
+                    if items:
+                        row_texts.append(" ".join(items))
+                if row_texts:
+                    core = _clean_heading_segment(table_heading) or "内容"
+                    if subject:
+                        lead = f"{subject}的全部{core}如下："
+                    else:
+                        lead = f"全部{core}如下："
+                    out.append(lead + "，".join(row_texts) + "。")
+                continue
+            # 非表格（如装饰线 |----|），原样保留
+            out.extend(block)
+            continue
+        out.append(line)
+        i += 1
+    return "\n".join(out)
+
+
 @dataclass
 class Chunk:
     """文档块数据模型"""
@@ -97,6 +174,7 @@ class Chunker:
         current_content = []
         heading_stack = ["root"]
         block_start = 0  # 当前内容块在原文中的起始行下标（行级引文用）
+        in_fence = False  # 围栏代码块状态：块内行只当内容，不参与标题解析
 
         # 正则匹配标题行（1-6 级标题）
         heading_pattern = re.compile(r'^(#{1,6})\s+(.+)$')
@@ -104,6 +182,20 @@ class Chunker:
         i = 0
         while i < len(lines):
             line = lines[i]
+
+            if _is_fence(line):
+                # 围栏边界行：切换状态，不入内容（避免 ``` 污染文本/嵌入）
+                in_fence = not in_fence
+                i += 1
+                continue
+
+            if in_fence:
+                # 代码块内：可能是 shell 注释 "# xxx"、YAML 注释 "# ===" 等，
+                # 一律按内容处理，绝不能当作标题破坏 heading 栈。
+                current_content.append(line)
+                i += 1
+                continue
+
             match = heading_pattern.match(line)
 
             if match:
@@ -124,6 +216,8 @@ class Chunker:
                 level = len(match.group(1))
                 title = match.group(2).strip()
 
+                # heading_stack[0]="root" 占位；pop 到栈长 == level 再 append，
+                # 使栈长恒为 level+1（例：# → ["root", t]，## → ["root", t, t2]）
                 while len(heading_stack) > level:
                     heading_stack.pop()
                 heading_stack.append(title)
@@ -154,6 +248,17 @@ class Chunker:
             content = section['content']
             if not content:
                 continue
+
+            # 表格转散文：bge 对管道表格语义打分极低，散文化后真实信息块
+            # 才可能被检索到（如「四、API 接口」的接口表）。用文件名 + 章节
+            # 标题生成「{文档}的全部{小节}如下：」引导句，与常见查询近义。
+            subject = str(document.file_name or "").rsplit(".", 1)[0]
+            content = _tables_to_prose(
+                content,
+                subject=subject,
+                table_heading=section.get('heading', "") or "",
+            )
+            section['content'] = content
 
             # 如果内容过长，按固定大小再切分（子块共享切片索引）
             if len(content) > self.chunk_size:
@@ -345,6 +450,11 @@ class Chunker:
                     heading_level=heading_level,
                     heading_path=heading_path,
                     chunk_index=section_index,
+                    # 行号必须与其他子块一致地传入：漏传会落到默认 0，
+                    # 而 0 在下游被 `start_line or None` 转成 None，
+                    # 该块的行级引文（line_start/line_end）就此静默消失。
+                    start_line=start_line,
+                    end_line=end_line,
                 ) | {'sub_index': chunk_idx},
             ))
 

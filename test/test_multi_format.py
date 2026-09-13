@@ -148,8 +148,14 @@ class _HtmlHandler(BaseHTTPRequestHandler):
 
 
 @pytest.fixture()
-def http_server():
-    """启动本地 HTTP 服务，返回 base_url"""
+def http_server(monkeypatch):
+    """启动本地 HTTP 服务，返回 base_url
+
+    本地服务监听 127.0.0.1，属 SSRF 防护默认拒绝范围；此处显式放行
+    （RAG_ALLOW_PRIVATE_URLS=1），以便覆盖 URL 抓取/解析/入库链路本身。
+    SSRF 防护自身的正反用例见 test_round3_boundaries.py。
+    """
+    monkeypatch.setenv("RAG_ALLOW_PRIVATE_URLS", "1")
     server = HTTPServer(("127.0.0.1", 0), _HtmlHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

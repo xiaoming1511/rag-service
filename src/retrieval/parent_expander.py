@@ -42,11 +42,19 @@ def _assemble_parent(
         max_tokens: 父块 token 上限
 
     Returns:
-        str: 按 chunk_index 顺序拼接的父块内容
+        str: 按 (chunk_index, sub_index) 顺序拼接的父块内容
     """
+    # 排序键必须含 sub_index：长章节被 _split_long_content 切成子块后，
+    # 全部子块共享同一个 chunk_index，仅按 chunk_index 排序无法确定子块
+    # 之间的先后——稳定排序会沿用 vector_store 的返回顺序，而该顺序不是
+    # 任何契约（get_by_doc_id 未承诺插入序）。子块缺 sub_index 时回落 0，
+    # 与未切分的普通块（单块章节）等价。
     siblings = sorted(
         siblings,
-        key=lambda d: (d.get("metadata") or {}).get("chunk_index", 0),
+        key=lambda d: (
+            (d.get("metadata") or {}).get("chunk_index", 0),
+            (d.get("metadata") or {}).get("sub_index", 0),
+        ),
     )
 
     # 预算内可全量拼接
@@ -56,11 +64,24 @@ def _assemble_parent(
         return "\n\n".join(full)
 
     # 超限：以命中块为中心，前后交替纳入兄弟块
-    hit_pos = 0
+    hit_pos = -1
     for i, d in enumerate(siblings):
         if d.get("id") == hit_id:
             hit_pos = i
             break
+
+    if hit_pos < 0:
+        # hit_id 在兄弟块中未命中（类型/格式差异）：无可靠命中中心，
+        # 降级为超限截断到预算，而非把第 0 块误当命中中心
+        selected: set = set()
+        used = 0
+        for i, seg in enumerate(full):
+            cost = estimate_tokens(seg)
+            if used + cost > max_tokens:
+                break
+            selected.add(i)
+            used += cost
+        return "\n\n".join(full[i] for i in sorted(selected))
 
     selected = {hit_pos}
     used = estimate_tokens(full[hit_pos])
