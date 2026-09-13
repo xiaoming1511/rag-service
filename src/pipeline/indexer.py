@@ -51,12 +51,27 @@ class Indexer:
         self.collection_name = collection_name
         self.max_workers = max_workers
 
+    @staticmethod
+    def _retrieval_text(chunk: Chunk) -> str:
+        """
+        上下文增强的检索文本：标题路径 + 正文
+
+        标题是最强的语义信号。纯正文块（尤其是代码/命令块）在稠密检索、
+        BM25 和重排序三个环节都无法与自然语言提问建立联系——例如
+        "2. 节点管理"章节的 kubectl 命令块，若不带标题，
+        中文提问"节点管理命令"与英文命令正文的相似度极低，
+        导致该块永远无法被召回。标题路径拼进文本后三环节同时受益。
+        """
+        hp = (chunk.heading_path or "").strip()
+        return f"[{hp}]\n{chunk.content}" if hp else chunk.content
+
     def index_all(
             self,
             source_dirs: Optional[List[str]] = None,
             rebuild: bool = False,
             max_workers: Optional[int] = None,
             cancelled: Optional[Callable[[], bool]] = None,
+            progress_cb: Optional[Callable[[str, int, int, str], None]] = None,
     ) -> Dict[str, Any]:
         """
         索引所有文档
@@ -67,23 +82,28 @@ class Indexer:
             max_workers: 并行分块线程数（决策 D7）；None 使用构造时的默认值
             cancelled: 取消检查回调（供 IngestQueue 长任务取消）；
                 在每个嵌入批次边界检查，返回 True 时返回已完成部分的统计
+            progress_cb: 进度回调 (stage, current, total, note)
+                （供 IngestQueue 作业的数字化进度条）
 
         Returns:
             Dict: 索引统计信息（取消时含 cancelled: True）
         """
+        def cb(stage: str, cur: int, tot: int, note: str = ""):
+            if progress_cb is not None:
+                progress_cb(stage, cur, tot, note)
+
         # 如果指定了源目录，更新 loader
         if source_dirs:
             self.loader.source_dirs = [Path(d).expanduser().resolve() for d in source_dirs]
 
-        # 清空现有数据（如果需要）
-        if rebuild:
-            print("🧹 清空现有索引...")
-            self.vector_store.clear()
+        # （不在此处清空）—— 旧索引保留到嵌入完全成功之后，见下方入库前 clear，
+        # 避免嵌入阶段失败（如 oMLX 宕机）时「旧索引已丢、新索引未建」的数据丢失。
 
         # 1. 加载文档
         print("📂 加载文档...")
         documents = self.loader.load()
         print(f"   ✅ 加载了 {len(documents)} 个文档")
+        cb("加载", len(documents), len(documents))
 
         if not documents:
             return {"total_documents": 0, "total_chunks": 0, "documents": []}
@@ -106,13 +126,16 @@ class Indexer:
 
         all_chunks = [c for cl in chunk_lists for c in cl]
         print(f"   ✅ 生成 {len(all_chunks)} 个块（并行度 {workers}）")
+        cb("分块", len(all_chunks), len(all_chunks))
 
         if not all_chunks:
             return {"total_documents": len(documents), "total_chunks": 0, "documents": []}
 
         # 3. 生成向量
         print("🔢 生成嵌入向量...")
-        chunk_texts = [c.content for c in all_chunks]
+        # 检索文本（标题路径 + 正文）只算一次：嵌入与入库用的是同一份文本，
+        # 原先在两处各算一遍属于重复的正则/字符串拼接开销
+        chunk_texts = [self._retrieval_text(c) for c in all_chunks]
 
         # 分批处理，避免内存问题
         batch_size = 100
@@ -125,7 +148,10 @@ class Indexer:
                 return {
                     "total_documents": len(documents),
                     "total_chunks": len(all_chunks),
+                    # total_vectors 是「已生成向量数」，取消时并未入库，
+                    # 故显式带 stored=False + vector_store_count 说明真实落库量
                     "total_vectors": len(all_embeddings),
+                    "stored": False,
                     "documents": [],
                     "vector_store_count": self.vector_store.count(),
                     "cancelled": True,
@@ -135,17 +161,23 @@ class Indexer:
             embeddings = self.embedder.embed(batch)
             all_embeddings.extend(embeddings)
 
-            # 显示进度
+            # 显示进度（控制台 + 数字化进度回调）
             progress = min(i + batch_size, len(chunk_texts))
             print(f"   📊 进度: {progress}/{len(chunk_texts)}")
+            cb("嵌入", progress, len(chunk_texts), f"批次 {i // batch_size + 1}")
 
         print(f"   ✅ 生成 {len(all_embeddings)} 个向量")
 
         # 4. 存储到向量数据库
         print("💾 存储到向量数据库...")
         ids = [c.id for c in all_chunks]
-        documents_content = [c.content for c in all_chunks]
+        documents_content = chunk_texts  # 与嵌入使用同一份检索文本
         metadatas = [c.metadata for c in all_chunks]
+
+        # 重建模式：在嵌入全部成功之后才清空旧索引，再一次性入库，
+        # 避免嵌入阶段失败导致旧索引已丢、新索引未建的不可恢复状态
+        if rebuild:
+            self.vector_store.clear()
 
         self.vector_store.add(
             ids=ids,
@@ -153,6 +185,7 @@ class Indexer:
             documents=documents_content,
             metadatas=metadatas,
         )
+        cb("存储", 1, 1)
 
         # 统计信息（Counter 分组：避免 文档数 × 块数 的双重遍历）
         doc_chunk_counts = Counter(c.metadata.get('doc_id') for c in all_chunks)
@@ -178,13 +211,15 @@ class Indexer:
 
         return stats
 
-    def index_single(self, file_path: str) -> Dict[str, Any]:
+    def index_single(self, file_path: str, overwrite: bool = False) -> Dict[str, Any]:
         """
         索引单个文档
 
         Args:
             file_path: 文件路径
-
+            overwrite: 已存在时是否覆盖（先删旧块再入新块）。
+                用于增量同步的「变更」分支：先完成加载+分块+嵌入，全部成功后
+                才删旧块、入新块，避免「先删后失败」导致数据丢失。
         Returns:
             Dict: 索引结果
         """
@@ -195,7 +230,7 @@ class Indexer:
 
         # 检查是否已存在（按 doc_id 元数据查询该文档的全部块）
         existing = self.vector_store.get_by_doc_id(document.id)
-        if existing:
+        if existing and not overwrite:
             print(f"⚠️ 文档已存在，跳过: {document.file_name}")
             return {"success": True, "skipped": True}
 
@@ -205,12 +240,15 @@ class Indexer:
             return {"success": False, "error": "分块失败"}
 
         # 3. 生成向量
-        chunk_texts = [c.content for c in chunks]
+        chunk_texts = [self._retrieval_text(c) for c in chunks]
         embeddings = self.embedder.embed(chunk_texts)
 
-        # 4. 存储
+        # 4. 存储（overwrite 时先删旧块；此时嵌入已成功，删除失败不会丢「未写入」的新数据）
+        if overwrite and existing:
+            self.vector_store.delete_by_doc_id(document.id)
+
         ids = [c.id for c in chunks]
-        documents_content = [c.content for c in chunks]
+        documents_content = [self._retrieval_text(c) for c in chunks]
         metadatas = [c.metadata for c in chunks]
 
         self.vector_store.add(
@@ -262,11 +300,11 @@ class Indexer:
             return {"success": False, "error": "分块失败（网页内容为空）"}
 
         # 4. 生成向量并入库
-        chunk_texts = [c.content for c in chunks]
+        chunk_texts = [self._retrieval_text(c) for c in chunks]
         embeddings = self.embedder.embed(chunk_texts)
 
         ids = [c.id for c in chunks]
-        documents_content = [c.content for c in chunks]
+        documents_content = [self._retrieval_text(c) for c in chunks]
         metadatas = [c.metadata for c in chunks]
 
         self.vector_store.add(

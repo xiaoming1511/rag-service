@@ -116,11 +116,20 @@ class Reranker:
 
                 # 解析分数（响应格式：{"results": [{"index": i, "relevance_score": s}]}）
                 scores = [0.0] * len(pairs)
-                for item in data.get("results", []):
+                results = data.get("results", [])
+                # 响应不完整（结果条数少于候选数）时抛异常走重试/回退，而不是
+                # 静默用 0 填充导致排序错误
+                if len(results) < len(pairs):
+                    raise ValueError(
+                        f"重排序响应不完整: 候选 {len(pairs)} 条, 返回 {len(results)} 条"
+                    )
+                for item in results:
                     idx = item.get("index")
                     score = item.get("relevance_score", 0.0)
-                    if idx is not None and idx < len(scores):
-                        scores[idx] = score
+                    # 拒绝负数与越界 index，避免负索引静默写错位置
+                    if idx is None or not isinstance(idx, int) or not (0 <= idx < len(scores)):
+                        raise ValueError(f"重排序响应 index 非法: {idx}")
+                    scores[idx] = score
                 return scores
 
             except httpx.HTTPStatusError as e:

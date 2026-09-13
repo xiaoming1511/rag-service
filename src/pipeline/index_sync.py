@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 
 from src.pipeline.indexer import Indexer
+from src.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 
 class IndexSync:
@@ -125,6 +128,9 @@ class IndexSync:
                 for filename in filenames:
                     p = Path(root) / filename
                     if p.suffix.lower() in extensions:
+                        # 统一 resolve，保证 doc_id 与 DocumentLoader 入库路径一致
+                        # （否则符号链接/相对路径会导致 doc_id 与库内元数据对不上）
+                        p = p.resolve()
                         files[str(p)] = p
         return files
 
@@ -136,6 +142,7 @@ class IndexSync:
             self,
             rebuild: bool = False,
             cancelled: Optional[Callable[[], bool]] = None,
+            progress_cb: Optional[Callable[[str, int, int, str], None]] = None,
     ) -> Dict[str, Any]:
         """
         执行一次增量同步（进程内互斥）
@@ -145,27 +152,34 @@ class IndexSync:
             cancelled: 取消检查回调（供 IngestQueue 长任务取消）；在每个文档
                 处理边界轮询，返回 True 时停止后续处理（已处理部分保留，
                 增量同步天然幂等，下次同步续跑）
+            progress_cb: 进度回调 (stage, current, total, note)（供作业进度条）
 
         Returns:
             Dict: 统计信息 {added, updated, removed, unchanged, skipped, cancelled}
         """
         with self._lock:
-            return self._sync_locked(rebuild=rebuild, cancelled=cancelled)
+            return self._sync_locked(rebuild=rebuild, cancelled=cancelled, progress_cb=progress_cb)
 
     def _sync_locked(
             self,
             rebuild: bool = False,
             cancelled: Optional[Callable[[], bool]] = None,
+            progress_cb: Optional[Callable[[str, int, int, str], None]] = None,
     ) -> Dict[str, Any]:
         """实际执行同步（须持有 self._lock 调用）"""
         from src.document.loader import DocumentLoader
 
+        def cb(stage: str, cur: int, tot: int, note: str = ""):
+            if progress_cb is not None:
+                progress_cb(stage, cur, tot, note)
+
         self.load_manifest()
 
         if rebuild:
-            print("🧹 增量同步：清空向量库与清单，执行全量重建...")
+            logger.info("增量同步：清空向量库与清单，执行全量重建")
             self.indexer.vector_store.clear()
             self.manifest = {"version": self.MANIFEST_VERSION, "docs": {}}
+            cb("清空", 1, 1)
 
         docs_map = self.manifest["docs"]
         current_files = self._scan_files()
@@ -180,7 +194,13 @@ class IndexSync:
         }
 
         # ---------- 阶段一：处理当前存在的文件 ----------
+        total_files = len(current_files)
+        done = 0
+        if total_files:
+            cb("增量同步", 0, total_files)
         for path_str, path in current_files.items():
+            done += 1
+            cb("增量同步", done, total_files, path.name)
             # 取消检查（文档粒度）：已处理部分保留，未处理文件下次同步续跑
             if cancelled is not None and cancelled():
                 stats["cancelled"] = True
@@ -222,38 +242,36 @@ class IndexSync:
                     entry["size"] = st.st_size
                     stats["unchanged"] += 1
                 else:
-                    # —— 变更：先删旧块，再重新入库 ——
-                    old_doc_id = entry.get("doc_id")
-                    if old_doc_id:
-                        store.delete_by_doc_id(old_doc_id)
+                    # —— 变更：先加载+分块+嵌入，成功后才删旧块再入新块 ——
+                    # （overwrite=True 让 index_single 内部完成「先嵌入后删旧」，
+                    #   避免旧块先删后 index_single 失败导致的永久丢失）
                     doc_id = DocumentLoader.doc_id_for(path_str)
-                    result = self.indexer.index_single(path_str)
-                    if result.get("success"):
+                    result = self.indexer.index_single(path_str, overwrite=True)
+                    if result.get("success") and not result.get("skipped"):
                         docs_map[path_str] = self._entry_for(path, doc_id, st)
-                        if result.get("skipped"):
-                            stats["skipped"].append(path.name)
-                        else:
-                            stats["updated"].append(path.name)
+                        stats["updated"].append(path.name)
                     else:
                         stats["skipped"].append(path.name)
 
         # ---------- 阶段二：处理已消失的文件（已取消时跳过，下次同步续跑） ----------
         if not stats.get("cancelled"):
-            for path_str in list(docs_map.keys()):
-                if path_str not in current_files:
-                    entry = docs_map.pop(path_str)
-                    doc_id = entry.get("doc_id")
-                    if doc_id:
-                        store.delete_by_doc_id(doc_id)
-                    stats["removed"].append(Path(path_str).name)
+            removed_pending = [p for p in docs_map.keys() if p not in current_files]
+            for idx, path_str in enumerate(removed_pending, 1):
+                cb("删除清理", idx, len(removed_pending) or 1, Path(path_str).name)
+                entry = docs_map.pop(path_str)
+                doc_id = entry.get("doc_id")
+                if doc_id:
+                    store.delete_by_doc_id(doc_id)
+                stats["removed"].append(Path(path_str).name)
 
         self.save_manifest()
+        cb("完成", 1, 1)
 
         if stats["added"] or stats["updated"] or stats["removed"]:
-            print(
-                f"♻️ 增量同步完成: 新增 {len(stats['added'])} | "
-                f"更新 {len(stats['updated'])} | 删除 {len(stats['removed'])} | "
-                f"未变 {stats['unchanged']}"
+            logger.info(
+                "增量同步完成: 新增 %d | 更新 %d | 删除 %d | 未变 %d",
+                len(stats["added"]), len(stats["updated"]),
+                len(stats["removed"]), stats["unchanged"],
             )
 
         return stats

@@ -7,10 +7,13 @@ from typing import Dict, Any
 import asyncio
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import StreamingResponse
 
 from src.api.schemas import QueryRequest, QueryResponse, SourceInfo
+from src.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["query"])
 
@@ -25,7 +28,7 @@ def set_pipeline(pipeline):
 
 
 @router.post("/query", response_model=QueryResponse)
-async def query(request: QueryRequest) -> Dict[str, Any]:
+async def query(request: QueryRequest, response: Response) -> Dict[str, Any]:
     """
     同步问答接口
     """
@@ -43,6 +46,13 @@ async def query(request: QueryRequest) -> Dict[str, Any]:
             history=request.history,
         )
 
+        timing = result.get("timing_ms") or {}
+        total_ms = timing.get("total_ms")
+        if total_ms is not None:
+            response.headers["X-RAG-Total-Ms"] = f"{total_ms:.0f}"
+            response.headers["X-RAG-Retrieve-Ms"] = f"{timing.get('retrieve_ms', 0):.0f}"
+            response.headers["X-RAG-Generate-Ms"] = f"{timing.get('generate_ms', 0):.0f}"
+
         return {
             "answer": result["answer"],
             "sources": [
@@ -59,9 +69,12 @@ async def query(request: QueryRequest) -> Dict[str, Any]:
                 for s in result.get("sources", [])
             ],
             "total_results": result.get("total_results", 0),
+            "timing_ms": timing,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # 详细错误只进日志，不回传客户端（避免泄露内部路径/堆栈细节）
+        logger.exception("问答失败: %s", e)
+        raise HTTPException(status_code=500, detail="问答处理失败，请查看服务日志")
 
 
 @router.post("/query/stream")
@@ -87,7 +100,9 @@ async def query_stream(request: QueryRequest):
             ):
                 yield chunk
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'data': str(e)}, ensure_ascii=False)}\n\n"
+            # 详细错误记入日志，客户端只收到通用错误（避免泄露内部信息/堆栈）
+            logger.exception("流式问答异常: %s", e)
+            yield f"data: {json.dumps({'type': 'error', 'data': '生成过程中发生错误'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         generate(),
