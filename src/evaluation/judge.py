@@ -11,12 +11,12 @@ LLM-as-judge 生成质量评测（决策 B1）
 - 失败（服务不可达等）抛给调用方由 runner 汇总为 judge_error
 """
 
-import logging
 from typing import Dict, List
 
 from src.evaluation.metrics import parse_judge_score
+from src.logging_setup import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 FAITHFULNESS_PROMPT = """你是一个严格的评测裁判。请根据给定的上下文判断「回答」的忠实度：
 - 回答中的每个关键论断是否都能在上下文中找到依据？

@@ -10,7 +10,6 @@
 - 问题、回答正文、来源清单（含文件路径与标题锚点）
 """
 
-import hashlib
 import re
 import uuid
 from datetime import datetime
@@ -48,10 +47,15 @@ def _slug(text: str, max_len: int = 40) -> str:
     return slug[:max_len] or "qa"
 
 
-def _short_hash(question: str, answer: str) -> str:
-    """问题+答案的短哈希（供日志/调试使用）"""
-    raw = f"{question}|{answer}".encode("utf-8")
-    return hashlib.md5(raw).hexdigest()[:8]
+def _yaml_scalar(text: str) -> str:
+    """把文本转成安全的 YAML 标量
+
+    沉淀文件写在被监听的 vault 目录里，自身也会被索引。问题若含换行、
+    `---` 或引号，直接内插会破坏 frontmatter 结构（后续读取/解析失败），
+    因此统一走 json 引号转义——JSON 字符串是 YAML 的双引号标量子集。
+    """
+    import json
+    return json.dumps(text or "", ensure_ascii=False)
 
 
 def save_syntheses(
@@ -87,7 +91,11 @@ def save_syntheses(
         source_lines = []
         for s in sources or []:
             heading = f" ({s.get('heading')})" if s.get("heading") else ""
-            score = f"{s.get('score', 0):.3f}" if isinstance(s.get("score"), float) else ""
+            raw_score = s.get("score")
+            # 旧写法 isinstance(raw_score, float) 会把 int 分（0 / 1）判成"无分"，
+            # 于是分数整段消失；bool 是 int 子类需排除，避免 True 被写成 1.000
+            has_score = isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool)
+            score = f"{float(raw_score):.3f}" if has_score else ""
             source_lines.append(
                 f"- [[{s.get('file_name', 'unknown')}]]{heading} · 分数 {score} · `{s.get('file_path', '')}`"
             )
@@ -96,7 +104,7 @@ def save_syntheses(
             "---\n"
             f"type: synthesis\n"
             f"date: {datetime.now().isoformat(timespec='seconds')}\n"
-            f"question: {question}\n"
+            f"question: {_yaml_scalar(question)}\n"
             f"source_count: {len(sources or [])}\n"
             "---\n"
         )
@@ -113,7 +121,23 @@ def save_syntheses(
         ]
         content = "\n".join(content_parts)
 
-        file_path.write_text(content, encoding="utf-8")
+        # 原子写：先写临时文件再 replace，避免 watcher 捕获到半写文件
+        # （该目录被监听，半写会触发增量索引读到不完整内容）
+        import os
+        import tempfile
+        # 点前缀：Obsidian 隐藏点文件——万一写入中途崩溃留下孤儿临时文件，
+        # 也不会出现在用户文件列表里（加载器按扩展名白名单本就不索引 .tmp）
+        fd, tmp_path = tempfile.mkstemp(dir=str(out_dir), prefix=".", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp_path, file_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         return file_path
     except Exception as e:
         logger.warning("问答沉淀写入失败: %s", e)

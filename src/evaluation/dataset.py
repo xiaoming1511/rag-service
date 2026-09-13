@@ -49,11 +49,19 @@ class EvalDataset:
 
         seen_ids: Set[str] = set()
         for i, item in enumerate(raw):
+            # fail-fast 的报错必须指向数据本身：非 dict 项先明说，
+            # 否则会在 item.keys() 上抛 AttributeError，报错与真实原因无关
+            if not isinstance(item, dict):
+                raise ValueError(
+                    f"评测集第 {i} 项必须是 JSON 对象，实际为 {type(item).__name__}"
+                )
             missing = REQUIRED_FIELDS - set(item.keys())
             if missing:
                 raise ValueError(f"评测集第 {i} 项缺少必填字段: {sorted(missing)}")
             if not isinstance(item["gold_docs"], list) or not item["gold_docs"]:
                 raise ValueError(f"评测集第 {i} 项（{item['id']}）gold_docs 必须是非空数组")
+            if any(not isinstance(d, str) or not d.strip() for d in item["gold_docs"]):
+                raise ValueError(f"评测集第 {i} 项（{item['id']}）gold_docs 元素必须是非空字符串")
             if item["id"] in seen_ids:
                 raise ValueError(f"评测集 id 重复: {item['id']}")
             seen_ids.add(item["id"])

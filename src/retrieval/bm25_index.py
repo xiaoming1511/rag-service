@@ -11,13 +11,14 @@ BM25 稀疏检索索引（决策 B3：混合检索）
   只用排名不用原始分，天然规避 BM25 分与 cosine 分的量纲问题
 """
 
-import logging
 import re
+from threading import Lock
 from typing import Any, Dict, List, Sequence
 
+from src.logging_setup import get_logger
 from src.vector_store.base import BaseVectorStore, SearchResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _WORD_RE = re.compile(r"[A-Za-z0-9]+")
 _PUNCT_RE = re.compile(r"[\W_]+", re.UNICODE)
@@ -77,27 +78,38 @@ class BM25Index:
         self._bm25 = None
         self._corpus: List[Dict[str, Any]] = []  # [{id, content, metadata}]
         self._built_count: int = -1
+        # 重建/失效与查询之间存在竞态：多线程并发 search 会在 _ensure_fresh 里
+        # 交叉重写 _corpus/_bm25，导致「corpus 长度与索引不一致」的越界或错位。
+        # 用锁串行化重建 + 局部构建完再一次原子替换。
+        self._lock = Lock()
 
     def invalidate(self) -> None:
         """标记索引过期（索引同步/重建后调用，下次查询时重建）"""
-        self._built_count = -1
+        with self._lock:
+            self._built_count = -1
 
     def _ensure_fresh(self) -> None:
         """计数变化则重建（增量同步后块数必然变化，天然触发）"""
-        current = self.vector_store.count()
-        if self._bm25 is not None and current == self._built_count:
-            return
-        from rank_bm25 import BM25Okapi
+        with self._lock:
+            current = self.vector_store.count()
+            if self._bm25 is not None and current == self._built_count:
+                return
+            from rank_bm25 import BM25Okapi
 
-        corpus = self.vector_store.get_all()
-        self._corpus = [
-            {"id": item["id"], "content": item["document"], "metadata": item["metadata"]}
-            for item in corpus
-        ]
-        tokenized = [tokenize(c["content"]) for c in self._corpus]
-        self._bm25 = BM25Okapi(tokenized) if tokenized else None
-        self._built_count = current
-        logger.info("BM25 索引已构建: %d 块", len(self._corpus))
+            # 在局部变量构建完整的新索引，最后一次原子替换，
+            # 避免并发 search 读到「corpus 已更新但 bm25 未更新」的中间态
+            corpus_items = self.vector_store.get_all()
+            new_corpus = [
+                {"id": item["id"], "content": item["document"], "metadata": item["metadata"]}
+                for item in corpus_items
+            ]
+            tokenized = [tokenize(c["content"]) for c in new_corpus]
+            new_bm25 = BM25Okapi(tokenized) if tokenized else None
+
+            self._corpus = new_corpus
+            self._bm25 = new_bm25
+            self._built_count = current
+            logger.info("BM25 索引已构建: %d 块", len(self._corpus))
 
     def search(self, query: str, top_n: int = 20) -> List[SearchResult]:
         """
@@ -107,17 +119,19 @@ class BM25Index:
             List[SearchResult]: 按 BM25 分降序；score 为 BM25 分（与 cosine 不同量纲）
         """
         self._ensure_fresh()
-        if self._bm25 is None or not query.strip():
-            return []
-        scores = self._bm25.get_scores(tokenize(query))
-        order = sorted(range(len(scores)), key=lambda i: -scores[i])[:top_n]
-        return [
-            SearchResult(
-                id=self._corpus[i]["id"],
-                content=self._corpus[i]["content"],
-                metadata=self._corpus[i]["metadata"],
-                score=float(scores[i]),
-            )
-            for i in order
-            if scores[i] > 0
-        ]
+        # 读取索引与语料时持有锁，保证二者同源（重建中不会被读到中间态）
+        with self._lock:
+            if self._bm25 is None or not query.strip():
+                return []
+            scores = self._bm25.get_scores(tokenize(query))
+            order = sorted(range(len(scores)), key=lambda i: -scores[i])[:top_n]
+            return [
+                SearchResult(
+                    id=self._corpus[i]["id"],
+                    content=self._corpus[i]["content"],
+                    metadata=self._corpus[i]["metadata"],
+                    score=float(scores[i]),
+                )
+                for i in order
+                if scores[i] > 0
+            ]
