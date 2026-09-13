@@ -18,7 +18,8 @@ class DocxParser(Parser):
 
         from docx import Document as DocxDocument
 
-        doc = DocxDocument(io.BytesIO(data))
+        with io.BytesIO(data) as buf:
+            doc = DocxDocument(buf)
 
         parts: List[str] = []
 

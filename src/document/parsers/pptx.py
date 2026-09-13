@@ -5,6 +5,7 @@ PowerPoint 解析器
 
 from typing import List, Optional
 
+from src.document.md_common import escape_pipe, render_md_table
 from src.document.parsers.base import Parser, ParsedContent
 
 
@@ -18,7 +19,8 @@ class PptxParser(Parser):
 
         from pptx import Presentation
 
-        prs = Presentation(io.BytesIO(data))
+        with io.BytesIO(data) as buf:
+            prs = Presentation(buf)
 
         slide_parts = []
         first_text: Optional[str] = None
@@ -38,12 +40,17 @@ class PptxParser(Parser):
                             first_text = text
                 # 表格
                 if getattr(shape, "has_table", False):
-                    for row in shape.table.rows:
-                        cells = [c.text.strip() for c in row.cells]
-                        line = " | ".join(c for c in cells if c)
-                        if line:
-                            lines.append(line)
-                            slide_text.append(line)
+                    # 与转换接口（to_markdown）共用同一渲染规则：补齐列宽 +
+                    # 补 `| --- |` 分隔行。此前用 " | ".join(非空单元格) 拼成
+                    # 普通文本行，列数不齐会错位、且 Obsidian 不认这是表格。
+                    raw_rows = [
+                        [escape_pipe(c.text.strip()) for c in row.cells]
+                        for row in shape.table.rows
+                    ]
+                    table_md = render_md_table(raw_rows)
+                    if table_md:
+                        lines.append(table_md)
+                        slide_text.append(table_md)
                 # 图片（多模态：上下文字幕取本页文本）
                 if str(getattr(shape, "shape_type", "")) == "PICTURE (13)" or "PICTURE" in str(getattr(shape, "shape_type", "")):
                     try:

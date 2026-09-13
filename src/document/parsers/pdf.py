@@ -17,10 +17,23 @@ class PDFParser(Parser):
         import pymupdf  # PyMuPDF（新版模块名；旧版本兼容 import fitz）
 
         doc = pymupdf.open(stream=data, filetype="pdf")
+        try:
+            return self._parse_document(doc)
+        finally:
+            # 确保文档句柄一定释放（资源泄漏保护）
+            doc.close()
 
-        # 文档元数据（PDF 内置元信息）
+    def _parse_document(self, doc) -> ParsedContent:
+        from src.logging_setup import get_logger
+        logger = get_logger(__name__)
+
+        # 文档元数据（PDF 内置元信息，惰性属性可能因文档损坏抛异常）
         metadata = {}
-        pdf_meta = doc.metadata or {}
+        pdf_meta = {}
+        try:
+            pdf_meta = doc.metadata or {}
+        except Exception as e:
+            logger.warning("PDF 元数据读取失败: %s", e)
         if pdf_meta.get("title"):
             metadata["pdf_title"] = pdf_meta["title"]
         if pdf_meta.get("author"):
@@ -49,7 +62,6 @@ class PDFParser(Parser):
                 except Exception:
                     continue  # 单张图片提取失败不影响整体
 
-        doc.close()
         content = "\n\n".join(pages)
 
         # 标题：优先文档元数据，其次首页首行

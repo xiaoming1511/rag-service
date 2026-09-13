@@ -46,8 +46,13 @@ class Parser(ABC):
 
     @staticmethod
     def _decode_text(data: bytes) -> str:
-        """解码文本：优先 UTF-8，失败回退 GB18030（兼容中文 Windows 文档）"""
-        try:
-            return data.decode("utf-8")
-        except UnicodeDecodeError:
-            return data.decode("gb18030", errors="replace")
+        """解码文本。
+
+        编码回退链统一在 `md_common.decode_bytes`（utf-8 → gb18030 →
+        latin-1）。此前这里自成一链（utf-8 → gb18030 + errors=replace），
+        与 HTML / 转换接口的链不一致，同一份 Big5 文本经不同入口会得到
+        不同结果（Big5 局限见 md_common 注释）。
+        """
+        from src.document.md_common import decode_bytes
+
+        return decode_bytes(data)

@@ -1,18 +1,22 @@
 """
 HTML 解析器
-使用 BeautifulSoup 提取 <title> 与正文文本（去除脚本/样式/导航噪声）
+使用 BeautifulSoup 提取 <title> 与正文内容（去除脚本/样式/导航噪声）
+
+要点（修复「架构图丢失」问题）：
+    早期实现只挑白名单块级标签（p/h1-6/li/pre/td...）的文本，导致两处损坏：
+    1. 非白名单容器被静默丢弃 —— 如 `<div class="architecture">` 里的 ASCII
+       架构图不属于任何白名单标签，整张图既不报错也不提取，直接从索引消失；
+    2. 结构化内容塌陷 —— `get_text(" ")` 把内部换行统一替换成空格，
+       ASCII 图/代码块被压成一行，写回 Markdown 后排版错乱。
+
+    现改为委托 `html_to_markdown` 做结构感知转换：<pre>/ASCII 图容器用 ``` 围栏
+    逐字保留（含空白与换行），表格/列表/标题转为对应 Markdown 语法。
 """
 
 from typing import List, Optional
 
-from bs4 import BeautifulSoup, Tag
-
+from src.document.html_to_markdown import HTMLToMarkdownConverter
 from src.document.parsers.base import Parser, ParsedContent
-
-# 需要提取的块级标签
-_BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "pre", "blockquote", "td", "th"}
-# 需要丢弃的标签
-_SKIP_TAGS = {"script", "style", "noscript", "iframe", "svg", "nav", "footer"}
 
 
 class HTMLParser(Parser):
@@ -20,49 +24,25 @@ class HTMLParser(Parser):
 
     extensions: List[str] = [".html", ".htm"]
 
+    def __init__(self, keep_images: bool = True):
+        """
+        Args:
+            keep_images: 是否保留图片为 Markdown 图片语法（默认保留）
+        """
+        self.keep_images = keep_images
+
     def parse_bytes(self, data: bytes, source_name: str) -> ParsedContent:
-        # 尝试按 HTML 编码声明解码，失败回退 UTF-8
-        text = None
-        for enc in ("utf-8", "gb18030", "latin-1"):
-            try:
-                text = data.decode(enc)
-                break
-            except UnicodeDecodeError:
-                continue
-        if text is None:
-            text = data.decode("utf-8", errors="replace")
+        converter = HTMLToMarkdownConverter(keep_images=self.keep_images)
 
-        soup = BeautifulSoup(text, "html.parser")
+        # 先探测标题（转换过程会顺带记录），再取正文
+        content = converter.convert_bytes(data, source_name)
+        title: Optional[str] = converter.last_title
 
-        # 清理噪声标签
-        for tag in soup.find_all(_SKIP_TAGS):
-            tag.decompose()
-
-        # 标题：优先 <title>，其次第一个 h1
-        title: Optional[str] = None
-        if soup.title and soup.title.string:
-            title = soup.title.string.strip()
+        # 兜底：若 <title> 与 <h1> 都缺失，用首个 Markdown 标题
         if not title:
-            h1 = soup.find("h1")
-            if h1:
-                title = h1.get_text(strip=True)
+            for line in content.splitlines():
+                if line.startswith("#"):
+                    title = line.lstrip("#").strip() or None
+                    break
 
-        # 按文档顺序提取块级文本，保留段落边界
-        lines: List[str] = []
-        seen = set()
-
-        def walk(node):
-            if isinstance(node, Tag):
-                if node.name in _BLOCK_TAGS:
-                    seg = node.get_text(" ", strip=True)
-                    if seg and seg not in seen:
-                        seen.add(seg)
-                        lines.append(seg)
-                        return  # 块级元素内部不再递归，避免重复
-                for child in node.children:
-                    walk(child)
-
-        walk(soup)
-
-        content = "\n\n".join(lines)
         return ParsedContent(content=content, title=title)

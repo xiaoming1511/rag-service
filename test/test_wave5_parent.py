@@ -122,7 +122,9 @@ class TestExpandToParents:
 
 
 class TestRetrieverParentWiring:
-    def test_default_off(self):
+    def test_explicit_off(self):
+        """显式传 False 时关闭（默认值已改为回落 RetrievalConfig，
+        故本用例只保证「显式传参」这条路径，不再代表默认值）"""
         store = _make_store()
         r = Retriever(vector_store=store, embedder=None, parent_expansion=False)
         assert r.parent_expansion is False
@@ -143,8 +145,8 @@ class TestRetrieverParentWiring:
             reranker=_StubReranker(), top_k=5, similarity_threshold=0.0,
             parent_expansion=True, parent_max_tokens=1600,
         )
-        # 打桩 recall：直接返回一个命中
-        retriever._recall = lambda q, emb, c: [
+        # 打桩 recall：直接返回一个命中（where 参数为新增下传，打桩需容忍）
+        retriever._recall = lambda q, emb, c, where=None: [
             _hit("d1_0_1", "RDB 快照机制详解", store.docs["d1_0_1"][1])
         ]
         context, results = retriever.retrieve_with_context("持久化")
