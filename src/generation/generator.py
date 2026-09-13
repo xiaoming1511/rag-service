@@ -55,6 +55,10 @@ class Generator:
         self.history_token_budget = history_token_budget
         self.rewrite_query = rewrite_query
         self.model_router = model_router
+        # 最近一次生成的 usage（tokens / toks/s，来自 oMLX）。
+        # D6-1 后仅作诊断用途：并发下共享属性会串号，功能消费方必须通过
+        # 各生成方法的 usage_out 参数按请求读取。
+        self.last_usage: Optional[Dict[str, Any]] = None
 
         # 默认系统提示词
         self.default_system_prompt = (
@@ -65,6 +69,7 @@ class Generator:
             "使用中文回答。"
         )
         self.system_prompt = system_prompt or self.default_system_prompt
+        self.answer_style: str = "balanced"  # brief | balanced | detailed（提示词层控制回答长短）
 
     # ================================================================
     # 模型路由
@@ -93,6 +98,7 @@ class Generator:
         query: str,
         context: str,
         history: Optional[List[Dict[str, str]]] = None,
+        usage_out: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> str:
         """
@@ -102,6 +108,8 @@ class Generator:
             query: 用户问题
             context: 上下文文本
             history: 对话历史
+            usage_out: 调用方持有的局部 dict；本次生成的 usage 写入其中（D6-1，
+                per-request 读取路径；self.last_usage 保留仅作诊断用途）
             **kwargs: 其他参数
 
         Returns:
@@ -116,13 +124,20 @@ class Generator:
             "temperature": kwargs.get("temperature", self.temperature),
         }
 
-        return self.client.chat_sync(**params)
+        usage_holder: Dict[str, Any] = {}
+        text = self.client.chat_sync(usage_out=usage_holder, **params)
+        # 读 per-call holder 而非共享属性（D6-1：并发下共享属性会串号）
+        self.last_usage = usage_holder.get("usage")
+        if usage_out is not None:
+            usage_out["usage"] = self.last_usage
+        return text
 
     def generate_stream(
         self,
         query: str,
         context: str,
         history: Optional[List[Dict[str, str]]] = None,
+        usage_out: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> Generator[str, None, None]:
         """
@@ -132,6 +147,7 @@ class Generator:
             query: 用户问题
             context: 上下文文本
             history: 对话历史
+            usage_out: 调用方持有的局部 dict；流结束后写入本次 usage（D6-1）
             **kwargs: 其他参数
 
         Yields:
@@ -146,8 +162,13 @@ class Generator:
             "temperature": kwargs.get("temperature", self.temperature),
         }
 
-        for chunk in self.client.chat_stream_sync(**params):
+        usage_holder: Dict[str, Any] = {}
+        for chunk in self.client.chat_stream_sync(usage_out=usage_holder, **params):
             yield chunk
+        # 流结束后取用量（流末块携带，含真实 toks/s）；读 per-call holder（D6-1）
+        self.last_usage = usage_holder.get("usage")
+        if usage_out is not None:
+            usage_out["usage"] = self.last_usage
 
     # ========== 同步别名方法，保持接口兼容 ==========
     def generate_stream_sync(
@@ -171,6 +192,7 @@ class Generator:
         query: str,
         context: str,
         history: Optional[List[Dict[str, str]]] = None,
+        usage_out: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> str:
         """
@@ -180,6 +202,7 @@ class Generator:
             query: 用户问题
             context: 上下文文本
             history: 对话历史
+            usage_out: 调用方持有的局部 dict；本次生成的 usage 写入其中（D6-1）
             **kwargs: 其他参数
 
         Returns:
@@ -194,13 +217,20 @@ class Generator:
             "temperature": kwargs.get("temperature", self.temperature),
         }
 
-        return await self.client.chat_async(**params)
+        usage_holder: Dict[str, Any] = {}
+        text = await self.client.chat_async(usage_out=usage_holder, **params)
+        # 读 per-call holder 而非共享属性（D6-1）
+        self.last_usage = usage_holder.get("usage")
+        if usage_out is not None:
+            usage_out["usage"] = self.last_usage
+        return text
 
     async def generate_stream_async(
         self,
         query: str,
         context: str,
         history: Optional[List[Dict[str, str]]] = None,
+        usage_out: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """
@@ -213,6 +243,7 @@ class Generator:
             query: 用户问题
             context: 上下文文本
             history: 对话历史
+            usage_out: 调用方持有的局部 dict；流结束后写入本次 usage（D6-1）
             **kwargs: 其他参数
 
         Yields:
@@ -227,8 +258,16 @@ class Generator:
             "temperature": kwargs.get("temperature", self.temperature),
         }
 
-        async for chunk in self.client.chat_stream_async(**params):
+        usage_holder: Dict[str, Any] = {}
+        async for chunk in self.client.chat_stream_async(usage_out=usage_holder, **params):
             yield chunk
+        # 流结束后取用量（流末块携带，含真实 toks/s）。
+        # D6-1：必须读 per-call holder——纯事件循环路径上两个交错协程共享
+        # 同一线程，threading.local 无效，client 的共享写点与这里的读取点
+        # 之间存在挂起窗口，读共享属性会拿到并发请求的 usage。
+        self.last_usage = usage_holder.get("usage")
+        if usage_out is not None:
+            usage_out["usage"] = self.last_usage
 
     # ================================================================
     # 追问改写（决策 D5，默认关闭）
@@ -307,6 +346,20 @@ class Generator:
     # 内部工具
     # ================================================================
 
+    BRIEF_SUFFIX = (
+        "回答务必简要：只给结论与要点，避免冗长展开；"
+        "优先用 3~5 条短列表，不要写长段落、不要重复已答内容。"
+    )
+    DETAILED_SUFFIX = "回答要完整详实：充分展开每个要点，可补充背景与示例。"
+
+    def _effective_system_prompt(self) -> str:
+        """按 answer_style 叠加提示词（回答长短控制在提示词层，是生成耗时的主要杠杆）"""
+        if self.answer_style == "brief":
+            return f"{self.system_prompt}\n{self.BRIEF_SUFFIX}"
+        if self.answer_style == "detailed":
+            return f"{self.system_prompt}\n{self.DETAILED_SUFFIX}"
+        return self.system_prompt
+
     def _build_messages(
         self,
         query: str,
@@ -316,10 +369,10 @@ class Generator:
         """构建消息列表（系统提示词 + 裁剪后的对话历史 + 用户问题）"""
         messages = []
 
-        # 系统提示词
+        # 系统提示词（按回答风格叠加：brief/detailed 改变回答长短，生成耗时随之变化）
         messages.append({
             "role": "system",
-            "content": self.system_prompt
+            "content": self._effective_system_prompt()
         })
 
         # 对话历史（先按轮数与 token 预算裁剪）

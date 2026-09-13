@@ -99,9 +99,9 @@ def pipeline(tmp_path) -> RAGPipeline:
         generator=generator,
         max_context_tokens=2000,
         include_sources=True,
+        indexer=indexer,
+        vector_store=vector_store,
     )
-    pipe.indexer = indexer
-    pipe.vector_store = vector_store
     return pipe
 
 

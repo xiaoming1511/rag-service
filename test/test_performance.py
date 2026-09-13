@@ -180,7 +180,10 @@ def test_pipeline_response_cache_hit():
     r1 = pipe.query("什么是 Redis？", top_k=3)
     r2 = pipe.query("什么是 Redis？", top_k=3)
 
-    assert r1 == r2
+    # 语义内容一致；timing_ms 不同（命中时标注 cached=True）
+    assert {k: v for k, v in r1.items() if k != "timing_ms"} == \
+           {k: v for k, v in r2.items() if k != "timing_ms"}
+    assert r2["timing_ms"]["cached"] is True
     assert retriever.calls == 1
     assert generator.calls == 1
 

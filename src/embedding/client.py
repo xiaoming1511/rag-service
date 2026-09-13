@@ -34,6 +34,13 @@ class OMLXClient:
         # 同步 / 异步客户端（懒加载）
         self._sync_client: Optional[OpenAI] = None
         self._async_client: Optional[AsyncOpenAI] = None
+        # 懒加载双检锁：避免多线程 concurrently 首次访问时重复创建客户端
+        import threading
+        self._client_lock = threading.Lock()
+        # 最近一次聊天的 usage（tokens / toks/s；流式为 include_usage 末块）。
+        # D6-1 后仅作诊断用途：功能消费方必须通过各 chat 方法的 usage_out
+        # 参数按请求读取（共享属性在并发下会串号）。
+        self.last_chat_usage: Optional[Dict[str, Any]] = None
 
     # oMLX 服务端（uvicorn）在 HTTP keep-alive 连接复用时，同一连接的
     # 第二个及以后请求会返回 404（实测 httpx 复现：200→404→404...）。
@@ -42,26 +49,30 @@ class OMLXClient:
 
     @property
     def sync(self) -> OpenAI:
-        """获取同步客户端"""
+        """获取同步客户端（双检锁懒加载，多线程安全）"""
         if self._sync_client is None:
-            self._sync_client = OpenAI(
-                base_url=self.base_url,
-                api_key=self.api_key,
-                timeout=self.timeout,
-                default_headers=self._KEEPALIVE_BYPASS_HEADERS,
-            )
+            with self._client_lock:
+                if self._sync_client is None:
+                    self._sync_client = OpenAI(
+                        base_url=self.base_url,
+                        api_key=self.api_key,
+                        timeout=self.timeout,
+                        default_headers=self._KEEPALIVE_BYPASS_HEADERS,
+                    )
         return self._sync_client
 
     @property
     def async_client(self) -> AsyncOpenAI:
-        """获取异步客户端"""
+        """获取异步客户端（双检锁懒加载，多线程安全）"""
         if self._async_client is None:
-            self._async_client = AsyncOpenAI(
-                base_url=self.base_url,
-                api_key=self.api_key,
-                timeout=self.timeout,
-                default_headers=self._KEEPALIVE_BYPASS_HEADERS,
-            )
+            with self._client_lock:
+                if self._async_client is None:
+                    self._async_client = AsyncOpenAI(
+                        base_url=self.base_url,
+                        api_key=self.api_key,
+                        timeout=self.timeout,
+                        default_headers=self._KEEPALIVE_BYPASS_HEADERS,
+                    )
         return self._async_client
 
     # ================================================================
@@ -106,29 +117,93 @@ class OMLXClient:
     # 聊天补全
     # ================================================================
 
-    def chat_sync(self, model: str, messages: List[Dict[str, str]], **kwargs) -> str:
+    @staticmethod
+    def _usage_to_dict(usage) -> Optional[Dict[str, Any]]:
+        """把 OpenAI SDK 的 usage 对象转成可序列化 dict（含 oMLX 扩展字段）"""
+        if usage is None:
+            return None
+        try:
+            return {
+                "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                "completion_tokens": getattr(usage, "completion_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+                "generation_tokens_per_second": getattr(usage, "generation_tokens_per_second", None),
+                "time_to_first_token": getattr(usage, "time_to_first_token", None),
+                "generation_duration": getattr(usage, "generation_duration", None),
+                "total_time": getattr(usage, "total_time", None),
+            }
+        except Exception:
+            return None
+
+    @staticmethod
+    def _retryable(err: Exception) -> bool:
+        """可重试：5xx 或传输层错误（连接/超时）；4xx（含 429）不重试"""
+        status = getattr(getattr(err, "response", None), "status_code", None)
+        if status is not None:
+            return status >= 500
+        # 无 response：一般是传输层（连接失败/超时）
+        return True
+
+    def _retry_sync(self, fn, attempts: int = 2, backoff: float = 0.5):
+        """同步调用重试（oMLX 本地偶发 5xx/抖动 → 自动重试 1 次）"""
+        import time as _t
+        last: Optional[Exception] = None
+        for i in range(max(1, attempts)):
+            try:
+                return fn()
+            except Exception as e:  # noqa: BLE001
+                last = e
+                if not self._retryable(e) or i == attempts - 1:
+                    raise
+                _t.sleep(backoff)
+        raise last  # pragma: no cover
+
+    async def _retry_async(self, fn, attempts: int = 2, backoff: float = 0.5):
+        """异步调用重试"""
+        import asyncio as _a
+        last: Optional[Exception] = None
+        for i in range(max(1, attempts)):
+            try:
+                return await fn()
+            except Exception as e:  # noqa: BLE001
+                last = e
+                if not self._retryable(e) or i == attempts - 1:
+                    raise
+                await _a.sleep(backoff)
+        raise last  # pragma: no cover
+
+    def chat_sync(self, model: str, messages: List[Dict[str, str]],
+                  usage_out: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         """
         同步聊天（非流式）
 
         Args:
             model: 聊天模型名称
             messages: 消息列表
+            usage_out: 调用方持有的局部 dict；usage 同时写入其中（D6-1：
+                供 per-request 读取，避免共享属性 last_chat_usage 的并发串号；
+                旧属性保留仅作诊断用途）
             **kwargs: 其他参数（max_tokens、temperature 等）
 
         Returns:
             str: 回复内容
         """
-        response = self.sync.chat.completions.create(
+        response = self._retry_sync(lambda: self.sync.chat.completions.create(
             model=model,
             messages=messages,
             **kwargs
-        )
+        ))
+        usage = self._usage_to_dict(getattr(response, "usage", None))
+        self.last_chat_usage = usage
+        if usage_out is not None:
+            usage_out["usage"] = usage
         return response.choices[0].message.content
 
     async def chat_async(
         self,
         model: str,
         messages: List[Dict[str, str]],
+        usage_out: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> str:
         """
@@ -137,16 +212,21 @@ class OMLXClient:
         Args:
             model: 聊天模型名称
             messages: 消息列表
+            usage_out: 调用方持有的局部 dict；usage 同时写入其中（同 chat_sync，D6-1）
             **kwargs: 其他参数
 
         Returns:
             str: 回复内容
         """
-        response = await self.async_client.chat.completions.create(
+        response = await self._retry_async(lambda: self.async_client.chat.completions.create(
             model=model,
             messages=messages,
             **kwargs
-        )
+        ))
+        usage = self._usage_to_dict(getattr(response, "usage", None))
+        self.last_chat_usage = usage
+        if usage_out is not None:
+            usage_out["usage"] = usage
         return response.choices[0].message.content
 
     # ================================================================
@@ -157,6 +237,7 @@ class OMLXClient:
         self,
         model: str,
         messages: List[Dict[str, str]],
+        usage_out: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> Generator[str, None, None]:
         """
@@ -165,26 +246,44 @@ class OMLXClient:
         Args:
             model: 聊天模型名称
             messages: 消息列表
+            usage_out: 调用方持有的局部 dict；流末块的 usage 同时写入其中（D6-1）
             **kwargs: 其他参数
 
         Yields:
             str: 流式输出的文本片段
         """
-        stream = self.sync.chat.completions.create(
+        # include_usage：流末块携带 token 用量（oMLX 已支持），用于 toks/s 展示
+        kwargs.setdefault("stream_options", {"include_usage": True})
+        stream = self._retry_sync(lambda: self.sync.chat.completions.create(
             model=model,
             messages=messages,
             stream=True,
             **kwargs
-        )
+        ))
 
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+        try:
+            for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    usage = self._usage_to_dict(chunk.usage)
+                    self.last_chat_usage = usage
+                    if usage_out is not None:
+                        usage_out["usage"] = usage
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        finally:
+            # 与异步版一致：显式关闭底层响应，避免异常/提前退出时依赖 GC 释放连接
+            close = getattr(stream, "close", None)
+            if close is not None:
+                try:
+                    close()
+                except Exception:
+                    pass
 
     async def chat_stream_async(
         self,
         model: str,
         messages: List[Dict[str, str]],
+        usage_out: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """
@@ -200,20 +299,27 @@ class OMLXClient:
         Args:
             model: 聊天模型名称
             messages: 消息列表
+            usage_out: 调用方持有的局部 dict；流末块的 usage 同时写入其中（D6-1）
             **kwargs: 其他参数
 
         Yields:
             str: 流式输出的文本片段
         """
-        stream = await self.async_client.chat.completions.create(
+        kwargs.setdefault("stream_options", {"include_usage": True})
+        stream = await self._retry_async(lambda: self.async_client.chat.completions.create(
             model=model,
             messages=messages,
             stream=True,
             **kwargs
-        )
+        ))
 
         try:
             async for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    usage = self._usage_to_dict(chunk.usage)
+                    self.last_chat_usage = usage
+                    if usage_out is not None:
+                        usage_out["usage"] = usage
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
         finally:

@@ -16,6 +16,9 @@ from src.api.schemas import (
     JobResponse,
     JobListResponse,
 )
+from src.logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["index"])
 
@@ -58,7 +61,8 @@ async def index_documents(request: IndexRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("全量索引失败: %s", e)
+        raise HTTPException(status_code=500, detail="索引处理失败，请查看服务日志")
 
 
 @router.post("/index/url", response_model=IndexUrlResponse)
@@ -71,6 +75,13 @@ async def index_url(request: IndexUrlRequest):
     """
     if _pipeline is None:
         raise HTTPException(status_code=503, detail="Pipeline 未初始化")
+
+    # SSRF 防护：仅允许 http/https，且拒绝内网/回环/云元数据等敏感目标
+    from src.security.url_safety import validate_public_url, UnsafeURLError
+    try:
+        validate_public_url(request.url)
+    except UnsafeURLError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     try:
         # 网页抓取+解析+嵌入均为阻塞操作，放入线程池执行
@@ -95,7 +106,8 @@ async def index_url(request: IndexUrlRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("网页索引失败: %s", e)
+        raise HTTPException(status_code=500, detail="网页索引处理失败，请查看服务日志")
 
 
 def _job_to_response(job) -> JobResponse:
@@ -105,6 +117,7 @@ def _job_to_response(job) -> JobResponse:
         kind=job.kind,
         status=job.status,
         progress=job.progress,
+        progress_data=job.progress_data,
         error=job.error,
         result=job.result,
         created_at=job.created_at,
@@ -120,8 +133,10 @@ def _get_queue():
     return _pipeline.ingest_queue
 
 
+# 四个队列端点均为同步 sqlite/文件 IO（毫秒级），无 await —— 按 Round 5 规则
+# 必须是 def（Starlette 自动放入线程池），async def 会直接跑在事件循环上。
 @router.post("/index/async", response_model=JobResponse)
-async def submit_index_job(request: JobRequest):
+def submit_index_job(request: JobRequest):
     """
     后台摄入任务（异步）：full | incremental | url
 
@@ -146,7 +161,7 @@ async def submit_index_job(request: JobRequest):
 
 
 @router.get("/index/jobs", response_model=JobListResponse)
-async def list_index_jobs(limit: int = 50):
+def list_index_jobs(limit: int = 50):
     """列出摄入任务（新 -> 旧）"""
     queue = _get_queue()
     jobs = queue.list(limit=max(1, min(limit, 200)))
@@ -157,7 +172,7 @@ async def list_index_jobs(limit: int = 50):
 
 
 @router.get("/index/jobs/{job_id}", response_model=JobResponse)
-async def get_index_job(job_id: str):
+def get_index_job(job_id: str):
     """查询单个摄入任务（进度/结果）"""
     queue = _get_queue()
     job = queue.get(job_id)
@@ -167,7 +182,7 @@ async def get_index_job(job_id: str):
 
 
 @router.post("/index/jobs/{job_id}/cancel")
-async def cancel_index_job(job_id: str):
+def cancel_index_job(job_id: str):
     """取消摄入任务（queued 立即取消；running 标记取消）"""
     queue = _get_queue()
     ok = queue.cancel(job_id)
@@ -206,4 +221,5 @@ async def refresh_index():
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("增量索引失败: %s", e)
+        raise HTTPException(status_code=500, detail="增量索引处理失败，请查看服务日志")
