@@ -51,10 +51,23 @@ def trim_history(
         history = history[-(max_rounds * 2):]
 
     # 2. token 预算裁剪（从最旧开始丢弃，至少保留 1 轮）
+    # 注：预算为「软约束」——若最后保留的 1 轮（2 条）本身估算 token 就
+    #     超过 budget，仍会保留这 2 条（不裁掉最后一问），此时会超预算；
+    #     这是有意的取舍：宁超预算也不丢失最近一轮对话。
     if token_budget > 0:
         total = sum(estimate_tokens(h.get("content", "")) for h in history)
         while total > token_budget and len(history) > 2:
             dropped = history.pop(0)
             total -= estimate_tokens(dropped.get("content", ""))
+            # 轮对齐（R10-1）：丢掉一问（user）时把同轮的一答（assistant）
+            # 一并丢弃——旧实现逐条 pop，可能裁出「以 assistant 开头」的
+            # 轮中孤儿（部分上游模型对消息交替有严格要求）。
+            # 仅在剩余条数足以保住最近 1 轮（≥2 条）且下一条恰为 assistant
+            # 时成对丢；奇数长度的畸形历史退化为逐条丢（与旧行为一致）。
+            if (dropped.get("role") == "user"
+                    and len(history) >= 3
+                    and history[0].get("role") == "assistant"):
+                nxt = history.pop(0)
+                total -= estimate_tokens(nxt.get("content", ""))
 
     return history
