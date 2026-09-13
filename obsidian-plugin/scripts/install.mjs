@@ -18,19 +18,27 @@ const pluginId = manifest.id;
 
 // 插件安装目标：Obsidian 社区插件目录
 // 1. OBSIDIAN_VAULT 环境变量（如 OBSIDIAN_VAULT=/path/to/vault）
-// 2. 默认 user home + 硬编码候选路径（macOS）
+// 2. 默认 user home + 候选路径（macOS），按优先级取第一个「含 .obsidian 配置目录」的候选：
+//    - ~/projects/obsidian/xu   真实活跃库（插件 rag-service / karpathywiki 所在）
+//    - ~/projects/obsidian      外层容器（自身也有 .obsidian，但可能只是空壳，
+//                                不一定是真正启用插件的库）——放在 xu 之后作兜底
+//    - ~/Documents/Obsidian Vault 通用默认
 const envVault = process.env.OBSIDIAN_VAULT;
+const home = process.env.HOME || "";
 const candidates = envVault
   ? [envVault]
   : [
-      join(process.env.HOME || "", "projects/obsidian"),
-      join(process.env.HOME || "", "Documents/Obsidian Vault"),
+      join(home, "projects/obsidian/xu"),
+      join(home, "projects/obsidian"),
+      join(home, "Documents/Obsidian Vault"),
     ];
 
-const vaultRoot = candidates.find((p) => existsSync(p));
+// 必须存在 .obsidian 配置目录，才算是可安装插件的 vault 根
+const vaultRoot = candidates.find((p) => existsSync(join(p, ".obsidian")));
 if (!vaultRoot) {
   console.error(
-    "❌ 未找到 Obsidian vault 根目录。请设置环境变量 OBSIDIAN_VAULT=/path/to/vault"
+    "❌ 未找到 Obsidian vault 根目录（需含 .obsidian 配置目录）。" +
+      "请设置环境变量 OBSIDIAN_VAULT=/path/to/vault"
   );
   process.exit(1);
 }

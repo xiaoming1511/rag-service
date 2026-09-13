@@ -1,7 +1,7 @@
 {
   "id": "rag-service",
   "name": "RAG Service",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "1.0.0",
   "description": "个人知识库 RAG 问答：侧边栏聊天、引用点击跳转笔记、自动增量索引",
   "author": "xu",

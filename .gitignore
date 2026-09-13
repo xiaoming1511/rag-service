@@ -11,6 +11,7 @@ data/
 # ========== 测试与工具 ==========
 .pytest_cache/
 .pytest_tmp/
+.pytest_tmp*/
 .mypy_cache/
 .coverage
 htmlcov/
@@ -24,3 +25,7 @@ htmlcov/
 
 # ========== Obsidian 插件（node_modules 不入库；main.js 构建产物保留入库便于直接安装） ==========
 obsidian-plugin/node_modules/
+# 历史构建备份（手工备份产物，不入库）
+obsidian-plugin/*.bak-*
+# E2E 契约测试的中间产物（由 scripts/e2e-contract.mjs 生成）
+obsidian-plugin/.e2e/

@@ -1,5 +1,5 @@
 /* ================================================================
- * RAG Service 插件样式（参考 LLM Wiki 排版：卡片化、清晰层级、主题变量）
+ * RAG Service 插件样式（对话式查询，对齐设计稿）
  * 全部使用 Obsidian CSS 变量，自动适配浅色/深色主题
  * ================================================================ */
 
@@ -9,159 +9,695 @@
   flex-direction: column;
   height: 100%;
   background: var(--background-primary);
+  position: relative;
+  /* 容器查询根：窄侧栏时子元素自动切换紧凑布局 */
+  container-type: inline-size;
 }
 
-/* ===================== 会话栏 ===================== */
-.rag-session-bar {
+/* ===================== 顶部标题栏 ===================== */
+.rag-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.rag-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.rag-header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.rag-header-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.rag-header-actions {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
 }
 
-.rag-session-select {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: var(--radius-s, 6px);
-  background: var(--background-primary);
+.rag-header-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-s, 8px);
   border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rag-header-btn:hover {
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
-.rag-session-btn {
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: var(--radius-s, 6px);
+.rag-header-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* 强调按钮（新建对话） */
+.rag-header-btn-accent {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.rag-header-btn-accent:hover {
+  filter: brightness(1.08);
+  color: var(--text-on-accent);
+}
+
+/* 侧栏较窄时只显示图标、精简文案 */
+@container (max-width: 360px) {
+  .rag-header-btn-text { display: none; }
+  .rag-header-btn { padding: 0 8px; }
+  .rag-timer-prefix { display: none; }
+  .rag-stop-text-narrow { display: none; }
+}
+
+/* ===================== 历史会话面板 ===================== */
+.rag-history-panel {
+  display: none;
+  position: absolute;
+  top: 46px;
+  right: 8px;
+  z-index: var(--layer-popover, 30);
+  width: min(320px, calc(100% - 16px));
+  max-height: 50%;
+  overflow-y: auto;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  color: var(--text-normal);
+  border-radius: var(--radius-m, 10px);
+  box-shadow: var(--shadow-s);
+  padding: 6px;
+}
+
+.rag-history-panel.is-open {
+  display: block;
+}
+
+.rag-history-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.rag-history-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-s, 8px);
   cursor: pointer;
 }
 
-.rag-session-btn:hover {
+.rag-history-item:hover {
   background: var(--background-modifier-hover);
 }
 
-.rag-session-del {
+.rag-history-item.is-active {
+  background: var(--background-modifier-hover);
+}
+
+.rag-history-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.rag-history-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rag-history-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.rag-history-ops {
+  display: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.rag-history-item:hover .rag-history-ops {
+  display: flex;
+}
+
+.rag-history-op {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.rag-history-op:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.rag-history-op svg {
+  width: 13px;
+  height: 13px;
+}
+
+.rag-history-op-danger:hover {
   color: var(--text-error, #e5534b);
+}
+
+.rag-history-rename-input {
+  width: 100%;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--interactive-accent);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+/* ===================== 信息横幅 ===================== */
+.rag-info-banner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.rag-info-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.rag-info-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.rag-info-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
 }
 
 /* ===================== 消息区 ===================== */
 .rag-chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 14px 8px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
-.rag-chat-placeholder {
+/* ---- 空状态 ---- */
+.rag-empty-state {
   margin: auto;
-  text-align: center;
-  color: var(--text-muted);
-  opacity: 0.55;
-  white-space: pre-line;
-  font-size: 14px;
-}
-
-/* ---- 消息行：带头像 ---- */
-.rag-msg {
   display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 20px 8px;
+  width: 100%;
 }
 
-.rag-msg-user {
-  flex-direction: row-reverse;
-}
-
-.rag-avatar {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
+.rag-empty-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
-  background: var(--background-modifier-hover);
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
+  color: var(--interactive-accent);
+  margin-bottom: 14px;
 }
 
-.rag-msg-user .rag-avatar {
-  background: var(--interactive-accent);
-  color: #fff;
+.rag-empty-icon svg {
+  width: 26px;
+  height: 26px;
 }
 
-/* ---- 气泡（LLM Wiki 式卡片） ---- */
-.rag-msg-bubble {
-  max-width: 88%;
-  padding: 10px 14px;
+.rag-empty-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-normal);
+  margin-bottom: 6px;
+}
+
+.rag-empty-desc {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  max-width: 260px;
+  margin-bottom: 16px;
+}
+
+.rag-empty-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+
+.rag-empty-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.rag-suggestion-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 14px;
   border-radius: var(--radius-m, 12px);
-  font-size: 13.5px;
-  line-height: 1.7;
-  word-break: break-word;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  font-size: 13px;
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.rag-suggestion-card:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.rag-suggestion-text {
+  flex: 1;
+  text-align: left;
+}
+
+.rag-suggestion-arrow {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.rag-suggestion-arrow svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---- 用户消息 ---- */
+.rag-msg-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.rag-user-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* 编辑重发按钮：hover 用户消息时显现 */
+.rag-user-edit {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  color: var(--text-muted);
+}
+
+.rag-user-edit:hover {
+  color: var(--interactive-accent);
+}
+
+.rag-user-edit svg {
+  width: 12px;
+  height: 12px;
+}
+
+.rag-msg-user:hover .rag-user-edit {
+  opacity: 1;
+}
+
+.rag-user-label-icon svg {
+  width: 13px;
+  height: 13px;
 }
 
 .rag-msg-user .rag-msg-bubble {
+  max-width: 85%;
+  padding: 9px 14px;
+  border-radius: 14px;
+  border-bottom-right-radius: 4px;
   background: var(--interactive-accent);
-  color: #fff;
-  border-top-right-radius: 4px;
+  color: var(--text-on-accent);
+  font-size: 13.5px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+/* ---- 助手消息 ---- */
+.rag-msg-assistant {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.rag-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rag-agent-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.rag-agent-icon {
+  display: inline-flex;
+  color: var(--interactive-accent);
+}
+
+.rag-agent-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* 生成中徽章 */
+.rag-agent-badge {
+  font-size: 10.5px;
+  padding: 1px 8px;
+  border-radius: 8px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  opacity: 0.9;
+}
+
+/* 已用时（Agent 行内居中，流式期间显示，完成后移除） */
+.rag-agent-timer {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 确定型进度条：轨道 + 紫色填充 + 右侧百分比（流式期间显示，完成后移除） */
+.rag-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.rag-progress-track {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.rag-progress-bar {
+  height: 100%;
+  min-width: 3px;
+  width: 0%;
+  border-radius: 2px;
+  background: var(--interactive-accent);
+  transition: width 0.25s ease;
+}
+
+.rag-progress-pct {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 30px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.rag-agent-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rag-agent-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-s, 8px);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rag-agent-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.rag-agent-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 停止按钮内的方块指示 */
+.rag-stop-square {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: currentColor;
+  display: inline-block;
 }
 
 .rag-msg-assistant .rag-msg-bubble {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-top-left-radius: 4px;
+  max-width: 100%;
+  font-size: 13.5px;
+  line-height: 1.7;
+  word-break: break-word;
 }
 
 /* 气泡内 Markdown */
-.rag-msg-bubble p { margin: 5px 0; }
-.rag-msg-bubble h1, .rag-msg-bubble h2, .rag-msg-bubble h3, .rag-msg-bubble h4 {
-  font-size: 1.05em; margin: 8px 0 4px; line-height: 1.4;
+/* ---- 回答排版：对齐 Obsidian 阅读感的舒展间距 ---- */
+.rag-msg-bubble p { margin: 8px 0; }
+
+.rag-msg-bubble h1,
+.rag-msg-bubble h2,
+.rag-msg-bubble h3,
+.rag-msg-bubble h4 {
+  line-height: 1.45;
+  margin: 20px 0 8px;
+  font-weight: 600;
 }
-.rag-msg-bubble ul, .rag-msg-bubble ol { padding-left: 20px; margin: 4px 0; }
-.rag-msg-bubble li { margin: 2px 0; }
+.rag-msg-bubble h1 { font-size: 1.22em; }
+.rag-msg-bubble h2 { font-size: 1.12em; }
+.rag-msg-bubble h3 { font-size: 1.05em; }
+.rag-msg-bubble h4 { font-size: 1em; }
+
+/* 首尾元素贴边，避免气泡上下多出空隙 */
+.rag-msg-bubble > :first-child { margin-top: 0 !important; }
+.rag-msg-bubble > :last-child { margin-bottom: 0 !important; }
+
+.rag-msg-bubble ul,
+.rag-msg-bubble ol { padding-left: 22px; margin: 8px 0; }
+.rag-msg-bubble li { margin: 5px 0; }
+.rag-msg-bubble li > p { margin: 2px 0; }
+.rag-msg-bubble li > ul,
+.rag-msg-bubble li > ol { margin: 4px 0; }
+
 .rag-msg-bubble code {
   background: var(--background-modifier-hover);
   padding: 1px 6px; border-radius: 4px; font-size: 12.5px;
   font-family: var(--font-monospace);
 }
 .rag-msg-bubble pre {
-  background: var(--background-primary);
+  /* relative：把 Obsidian 内置「复制代码块」按钮锚定到代码块自身 */
+  position: relative;
+  background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
-  padding: 10px 12px; border-radius: 8px; overflow-x: auto;
+  padding: 12px 14px; border-radius: 8px; overflow-x: auto;
   font-size: 12.5px;
+  margin: 10px 0;
+}
+.rag-msg-bubble pre code {
+  display: block;
+  background: transparent; padding: 0; font-size: inherit;
+}
+
+/* 气泡内文本可选中复制（撤销任何上层 user-select:none 影响，含代码块） */
+.rag-msg-bubble,
+.rag-msg-bubble * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Obsidian 内置代码块复制按钮：右上角、悬浮显示、自身不参与选中。
+   曾出现：按钮被锚到更高层定位祖先而落到代码块左下方。 */
+.rag-msg-bubble pre > button.copy-code-button,
+.rag-msg-bubble pre > button.copy-code-button:hover {
+  position: absolute !important;
+  top: 6px !important;
+  right: 8px !important;
+  bottom: auto !important;
+  left: auto !important;
+  z-index: 1;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  border-radius: 6px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.rag-msg-bubble pre:hover > button.copy-code-button,
+.rag-msg-bubble pre > button.copy-code-button:focus-visible {
+  opacity: 1;
 }
 .rag-msg-bubble blockquote {
-  margin: 6px 0; padding: 4px 12px;
+  margin: 10px 0; padding: 6px 14px;
   border-left: 3px solid var(--interactive-accent);
   color: var(--text-muted);
 }
+.rag-msg-bubble hr {
+  border: none;
+  border-top: 1px solid var(--background-modifier-border);
+  margin: 14px 0;
+}
 
-/* ===================== 来源卡片 ===================== */
-.rag-sources {
-  margin-top: 8px;
-  max-width: 88%;
-  margin-left: 38px;
+/* ---- 流式光标（紫色方块，闪烁） ---- */
+.rag-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 15px;
+  margin-left: 2px;
+  border-radius: 2px;
+  background: var(--interactive-accent);
+  vertical-align: text-bottom;
+  animation: rag-cursor-blink 1s steps(2) infinite;
+}
+
+@keyframes rag-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ===================== 引用行（可折叠） ===================== */
+.rag-citations {
+  margin-top: 2px;
+}
+
+.rag-citation-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border-radius: 6px;
+  user-select: none;
+}
+
+.rag-citation-line:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.rag-citation-icon {
+  display: inline-flex;
+}
+
+.rag-citation-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.rag-citation-method {
+  color: var(--text-faint);
+}
+
+.rag-citation-chevron {
+  display: inline-flex;
+  transition: transform 0.15s;
+}
+
+.rag-citation-chevron svg {
+  width: 12px;
+  height: 12px;
+}
+
+.rag-citations.is-open .rag-citation-chevron {
+  transform: rotate(180deg);
+}
+
+.rag-citation-list {
+  margin-top: 6px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.rag-sources-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 2px;
-}
-
+/* ---- 来源卡片 ---- */
 .rag-source {
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
@@ -176,6 +712,13 @@
   background: var(--background-modifier-hover);
 }
 
+.rag-source-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .rag-source-link {
   font-weight: 600;
   color: var(--text-accent);
@@ -188,12 +731,12 @@
 }
 
 .rag-source-score {
-  float: right;
   color: var(--text-muted);
   font-size: 11px;
   padding: 1px 8px;
   border-radius: 10px;
   background: var(--background-primary);
+  white-space: nowrap;
 }
 
 .rag-source-heading {
@@ -241,10 +784,11 @@
 .rag-chat-input-area {
   display: flex;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 10px 12px;
   border-top: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  align-items: flex-end;
+  background: var(--background-primary);
+  /* 等高对齐：发送按钮始终与输入框同高（含多行增高时） */
+  align-items: stretch;
 }
 
 .rag-chat-input {
@@ -253,35 +797,95 @@
   min-height: 42px;
   max-height: 180px;
   font-size: 13.5px;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: var(--radius-m, 12px);
   border: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
+  background: var(--background-secondary);
   color: var(--text-normal);
   outline: none;
 }
 
 .rag-chat-input:focus {
   border-color: var(--interactive-accent);
+  background: var(--background-primary);
 }
 
 .rag-chat-send {
-  align-self: flex-end;
-  height: 42px;
-  min-width: 64px;
+  /* 高度随输入框拉伸（stretch），仅固定宽度 */
+  align-self: stretch;
+  width: 42px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius-m, 12px);
   background: var(--interactive-accent);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
+  color: var(--text-on-accent);
   border: none;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .rag-chat-send:hover { filter: brightness(1.08); }
-.rag-chat-send:disabled { opacity: 0.5; cursor: default; }
+.rag-chat-send.is-disabled { opacity: 0.5; cursor: default; pointer-events: none; }
 
-/* ---- 状态栏 ---- */
+.rag-chat-send svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ===================== 底部状态栏 ===================== */
+.rag-chat-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.rag-footer-note {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rag-footer-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.rag-status-text {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.rag-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.rag-status-dot.is-ok { background: var(--color-green, #4caf50); }
+.rag-status-dot.is-streaming {
+  background: var(--interactive-accent);
+  animation: rag-pulse 1.2s ease-in-out infinite;
+}
+.rag-status-dot.is-muted { background: var(--text-faint); }
+.rag-status-dot.is-error { background: var(--text-error, #e5534b); }
+
+@keyframes rag-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ---- Obsidian 全局状态栏 ---- */
 .rag-status {
   cursor: pointer;
   font-size: 12px;
@@ -293,4 +897,174 @@
 .rag-setting-tip {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* ===================== 完成态统计行（B：耗时/tokens/toks/s） ===================== */
+.rag-msg-stats {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+/* ===================== 历史会话面板（React 列表：搜索 + 日期分组） ===================== */
+.rag-history-react {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rag-history-search {
+  padding: 0 0 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 4px;
+}
+
+.rag-history-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 12.5px;
+}
+
+.rag-history-search input:focus {
+  border-color: var(--interactive-accent);
+}
+
+.rag-history-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  margin: 8px 2px 2px;
+}
+
+.rag-history-op-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---- 历史会话 React 错误边界兜底按钮 ---- */
+.rag-history-retry {
+  margin-top: 10px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rag-history-retry:hover {
+  border-color: var(--interactive-accent);
+}
+
+/* ===================== 运行时探针（错误可见，绝不空白） ===================== */
+.rag-fatal {
+  margin: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-red, #e03131);
+  background: var(--background-secondary);
+  color: var(--text-error, #e03131);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 8px;
+}
+
+/* ===================== 服务监控面板（A） ===================== */
+.rag-monitor {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.rag-monitor-line {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+.rag-monitor-req {
+  font-family: var(--font-monospace);
+  color: var(--text-faint);
+}
+
+/* ===================== 流式纯文本（流式中的助手内容） =====================
+ * 流式期间内容以纯文本追加（避开每个 chunk 全量 Markdown 解析的开销）。
+ * 必须 pre-wrap：否则模型输出里的换行会被折叠成一整行。
+ * 注：此前代码用了这个类但样式表里没有定义，等宽/换行都不生效。
+ */
+.rag-plain-stream {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--font-ui-medium, 14px);
+  line-height: 1.75;
+  color: var(--text-normal);
+}
+
+/* ===================== React 渲染根标记 =====================
+ * 挂在聊天容器上，作为「已由 React 接管」的钩子，同时兜住窄侧栏下的溢出。
+ */
+.rag-react-ui {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+}
+
+/* ===================== UI 错误边界兜底（区块出错可见、可重试） ===================== */
+.rag-ui-error {
+  margin: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-red, #e03131);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-error, #e03131);
+  font-size: 12.5px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.rag-ui-retry {
+  margin-top: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rag-ui-retry:hover {
+  border-color: var(--interactive-accent);
+}
+
+/* ===================== 后台摄入任务面板（异步队列 /v1/index/jobs） ===================== */
+.rag-job-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.rag-job-line {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-normal);
+}
+
+.rag-job-error {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-error, #e03131);
+  word-break: break-word;
 }
