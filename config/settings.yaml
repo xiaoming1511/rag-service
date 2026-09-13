@@ -57,6 +57,19 @@ performance:
 syntheses:
   enabled: true
   dir: ''
+ocr:
+  enabled: false
+  model: OvisOCR2
+  base_url: ''
+  api_key: ''
+  timeout: 120.0
+  prompt: OCR
+  min_text_chars: 16
+  render_dpi: 150
+  max_pages_per_doc: 30
+  max_images_per_doc: 20
+  min_image_side: 64
+  max_image_pixels: 40000000
 routing:
   chat: ''
   rewrite: ''

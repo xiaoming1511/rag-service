@@ -89,10 +89,11 @@
 
 | 模块 | 作用 |
 |---|---|
-| `loader.py` | 递归加载 + URL 抓取；**硬编码排除 `wiki/` 目录**（决策 D9）；提取内嵌图片落地 `data/attachments` |
-| `parsers/` | 注册表模式，8 个解析器：`markdown`（含 frontmatter）、`pdf`（PyMuPDF）、`docx`、`pptx`、`epub`、`html`、`text` + 抽象基类 |
+| `loader.py` | 递归加载 + URL 抓取；**硬编码排除 `wiki/` 目录**（决策 D9）；提取内嵌图片落地 `data/attachments`，并按配置把内嵌图片的 OCR 文字并入正文 |
+| `parsers/` | 注册表模式，9 个解析器：`markdown`（含 frontmatter）、`pdf`（PyMuPDF，含扫描页 OCR 回落）、`docx`、`pptx`、`epub`、`html`、`text`、`image`（图片 OCR）+ 抽象基类 |
+| `ocr.py` | OCR 客户端（视觉模型，默认 `OvisOCR2`）：OpenAI 兼容 `/v1/chat/completions` + `image_url` data URL；**默认关闭**、失败即降级、成本护栏前置（见第六节第 15 条） |
 | `chunker.py` | 按 Markdown 标题层级切分（`heading` 策略）或定长切分（`fixed`）；**记录 `line_start/end_line` 与 `heading_path`** 供行级引文跳转 |
-| `to_markdown.py` | 统一「任意格式 → Markdown」；`prefix_title(replace_existing)` 支持显式标题覆盖 |
+| `to_markdown.py` | 统一「任意格式 → Markdown」；`prefix_title(replace_existing)` 支持显式标题覆盖；图片格式与扫描页复用同一套 OCR |
 | `html_to_markdown.py` | 高质量 HTML→MD：保留表格/列表/代码块，**把 ASCII 架构图套围栏保留**（这是本项目一个专门修过的痛点） |
 
 ### 3.3 检索层 `src/retrieval/` —— 本项目技术含量最高的部分
@@ -594,13 +595,36 @@ DNS rebinding TOCTOU、`rebuild=True` 空目录不清空、全局 `print()`→lo
       应把探测做成**显式配置项**（`decoding.detector: none|charset-normalizer`）
       而非隐式按可用性切换——漂移问题由此消解。
 
+15. **为什么 OCR 默认关闭、扩展名要手动加、客户端不缓存**（第十二轮新增）
+    - 结论：`ocr.enabled` 默认 `false`。实测热态约 4s/页、冷启动首次调用 56s
+      （模型加载），开启后首次索引显著变慢，且与问答争抢同一台 oMLX 服务。
+      关闭时全链路与接入前一致：扫描件仍被当作空文档跳过、图片不作为文档加载。
+    - 为什么图片扩展名不默认进 `documents.supported_extensions`：那份清单是
+      **扫描入口**。一旦纳入而 OCR 关着，加载器会反复扫到图片、逐个返回空文档
+      ——白耗 IO，还会让增量同步把它们统计进"跳过"，噪声大。因此启用 OCR 是
+      **两步显式操作**：`ocr.enabled: true` + 扩展名入清单。
+    - 为什么 OCR 客户端不用长连接/不做缓存：`get_ocr_client()` 每次按当前配置
+      构造（对象极轻，请求时自建 httpx 连接，localhost 约 1ms）。好处是
+      `/v1/config` 改完下一轮索引或转换即生效，**不需要热更新钩子**；同时避免
+      「配置切换时关掉正被其他线程使用的连接池」误伤并发请求。
+    - 为什么失败一律返回空串：宁可少一段文字，不可少一篇文档。四个调用点
+      （内嵌图片 / 独立图片 / 扫描页 / 图片转换）各有一层 try，异常只记 warning。
+      失败的扫描页不计入 `ocr_pages`（那是成功口径），另记 `ocr_pages_failed`
+      ——OCR 静默失败是运维最需要看见的信号。
+    - 为什么扫描页不再提取内嵌图片：扫描页的"内嵌图"就是页面本身，两边都 OCR
+      会把同一段文字重复入库（`test_scanned_page_embedded_image_not_ocrd_twice` 锁定）。
+    - 已知边界：转换接口的 pdf/docx **内嵌图片**仍不提取（该路径本就只枚举
+      pptx/epub 图片），索引路径已全覆盖；如需一致需单独立项。
+    - 何时该推翻：若检索质量瓶颈明确落在扫描件覆盖度上，可考虑对 `.pdf` 默认
+      开启，并为首次索引单独加超时与进度提示。
+
 ---
 
 ## 七、一页速览
 
 ```
 已完成（可直接用）
-├─ 多格式索引（8 格式 + URL）· 全量/增量/异步三入口 · 文件监听自动同步
+├─ 多格式索引（8 格式 + 图片 OCR + URL）· 全量/增量/异步三入口 · 文件监听自动同步
 ├─ 混合检索 + 重排 + 父子块 + 沉淀降权 + token 预算上下文
 ├─ 流式问答(SSE) + 多轮对话 + 追问改写 + 响应缓存
 ├─ 会话 CRUD/撤回重发 · 配置热更新 · 文档转 MD · 导出导入
@@ -657,6 +681,16 @@ DNS rebinding TOCTOU、`rebuild=True` 空目录不清空、全局 `print()`→lo
 ├─ 【低】P11-3 设置项 `|| 默认值` 无法表达 0 → `finiteNum()` 显式有限数校验
 └─ 【验证】E2E 契约测试（真实插件 `api.ts` bundle ↔ 真实 FastAPI，30 断言全绿，含 R8 的 `usage_out` 端到端）
 
+第十二轮已修（OCR 接入：扫描件 / 独立图片 / 内嵌图片）
+├─ 新增 `ocr` 配置段（默认关闭 + 成本护栏）+ `src/document/ocr.py`（视觉模型客户端，OvisOCR2 实测）
+├─ 扫描版 PDF 此前被**静默丢弃**（无文本层 → 内容为空 → 加载器跳过）→ 扫描页整页 OCR 回落
+├─ 独立图片（png/jpg/jpeg/webp/gif/bmp/tiff）新增解析器；`/v1/convert` 同步支持（未启用时明确 400）
+├─ 内嵌图片（pdf/docx/pptx/epub）OCR 文字并入正文 —— 图片里的内容首次可被检索
+├─ 【真 bug】python-docx 1.2 的 `InlineShape` 无 `.image` 属性 → 旧 `getattr` 永远兜 None，
+│   **docx 内嵌图片从未被提取过**（既不落附件也不进正文，且无任何报错）→ 改走 blip 关系 ID
+├─ epub 解析器补齐图片枚举（此前只有转换接口枚举）→ 两条路径口径一致
+└─ 新增 50 项回归用例；全量 410 → **456 passed / 0 failed**；真实模型端到端实测通过
+
 待完善（剩余 —— 全部为"已决策不修 / 有意为之"，非未处理缺陷）
 
 ├─ **D6-2 CORS 通配** → 保持 `allow_origins=["*"]` + 标注风险（第六节第 10 条；三条推翻判据）
@@ -665,5 +699,7 @@ DNS rebinding TOCTOU、`rebuild=True` 空目录不清空、全局 `print()`→lo
 ├─ **检索多样性保持方案 A** → 不按文档去重、不加 MMR；top-5 同文档重复率 31/32 属单文档专题正常表现
 │   （推翻判据：跨文档查询成为主要用法、且重复挤占上下文成为可复现痛点 → 单独立项做 A/B）
 ├─ **插件 `onPhase` 空实现** → `chat_view.tsx:530-532` 主动忽略服务端 `phase` 事件，属可选优化
+├─ **OCR 未覆盖的点** → 转换接口的 pdf/docx 内嵌图片仍不提取（该路径本就只枚举 pptx/epub 图片）；
+│   索引路径已全覆盖。要做需单独立项（会改变 `ConvertResult.images` 的既有语义）
 └─ **唯一未做的验证** → Obsidian GUI 人工验证 7 项清单（自动化测试无法覆盖真实 GUI 环境）
 ```

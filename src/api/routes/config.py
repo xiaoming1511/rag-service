@@ -12,6 +12,7 @@ POST /v1/config 部分更新：pydantic 校验 → 写回 settings.yaml → 热�
 - performance.response_cache / response_cache_ttl
 - syntheses.enabled
 - routing.*（模型路由）
+- ocr.*（OCR 开关/模型/护栏；客户端每次现读配置，下一轮索引或转换即生效）
 其余字段（模型名、超时、嵌入缓存容量等）将持久化但需重启生效。
 """
 
@@ -33,8 +34,10 @@ _pipeline = None
 _config_lock = threading.Lock()
 
 # 允许通过 /v1/config 修改的顶层字段白名单（安全护栏）：
-# 禁止修改 auth / documents / vector_store / omlx 等敏感或影响数据源的字段
-_ALLOWED_TOP_LEVEL = {"retrieval", "generation", "performance", "syntheses", "routing"}
+# 禁止修改 auth / documents / vector_store / omlx 等敏感或影响数据源的字段。
+# ocr 在列：OCR 客户端由 src/document/ocr.get_ocr_client() **每次调用现读配置**
+# 构造，因此改完下一轮索引/转换即生效，不需要在这里写热更新钩子。
+_ALLOWED_TOP_LEVEL = {"retrieval", "generation", "performance", "syntheses", "routing", "ocr"}
 
 
 def set_pipeline(pipeline):
@@ -55,6 +58,7 @@ def _public_config() -> Dict[str, Any]:
         "generation": cfg["generation"],
         "performance": cfg["performance"],
         "syntheses": cfg["syntheses"],
+        "ocr": cfg["ocr"],
         "routing": cfg["routing"],
     }
 

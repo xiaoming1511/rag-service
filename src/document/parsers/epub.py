@@ -55,4 +55,22 @@ class EPUBParser(Parser):
         except Exception:
             pass
 
-        return ParsedContent(content=content, title=title)
+        # 内嵌图片（多模态）：此前只有转换接口（to_markdown）枚举 epub 图片，
+        # 索引路径静默丢弃 → 同一本书两条路径产出不一致（Round 4/10 一直在
+        # 收敛这类分叉）。这里补齐枚举，与转换接口同款 ITEM_IMAGE 口径。
+        # caption 取 epub 内部路径（如 images/fig1.png），是这本书里唯一稳定的图片标识。
+        images = []
+        for item in book.get_items_of_type(ebooklib.ITEM_IMAGE):
+            try:
+                blob = item.get_content()
+                name = item.get_name() or ""
+                ext = name.rsplit(".", 1)[-1].lower() if "." in name else "png"
+                images.append({
+                    "caption": name or "EPUB 内嵌图片",
+                    "bytes": blob,
+                    "ext": ext,
+                })
+            except Exception:
+                continue  # 单张图片提取失败不影响整本
+
+        return ParsedContent(content=content, title=title, images=images)

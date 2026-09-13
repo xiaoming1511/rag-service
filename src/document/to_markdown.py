@@ -10,6 +10,12 @@
     .pdf             → PyMuPDF 抽文本，按字号识别标题层级
     .docx            → python-docx，按 style 识别 Heading 1/2/... 层级
     .pptx            → python-pptx，每页一个 ## 幻灯片 N + 文本框/表格
+    .png/.jpg/...    → 视觉模型 OCR（需 ocr.enabled=true）
+
+OCR（可选，默认关闭；实现见 src/document/ocr.py）：
+    - 扫描版 PDF：文本层字符数低于 ocr.min_text_chars 的页面整页渲染后识别
+    - 独立图片  ：图片本体送模型识别，识别结果即正文
+    - 内嵌图片  ：pptx/epub 已提取出的图片逐张识别，文字并入正文
 
 设计原则（与 html_to_markdown 一致）：
     - 标题统一成 Markdown `#`/`##`/`###` 层级（而非扁平文本）
@@ -122,8 +128,8 @@ def _html_to_markdown(content: str, _title: Optional[str]) -> ConvertResult:
     return ConvertResult(markdown=md, title=title, source_format="html")
 
 
-def _epub_to_markdown(data: bytes, source_name: str) -> ConvertResult:
-    """EPUB → Markdown：逐章节转 XHTML，书籍标题作 H1、章节 H1 降为 H2"""
+def _epub_to_markdown(data: bytes, source_name: str, ocr=None) -> ConvertResult:
+    """EPUB → Markdown：逐章节转 XHTML，书籍标题作 H1、章节 H1 降为 H2；内嵌图片可选 OCR"""
     import io
 
     import ebooklib
@@ -157,21 +163,35 @@ def _epub_to_markdown(data: bytes, source_name: str) -> ConvertResult:
     # 图片资源枚举（R10-3）：正文里的 ![](src) 引用指向 epub 内部路径，
     # 落盘后并不解析；这里把图片内容带出，供调用方改写引用或另存附件
     images: List[Dict[str, Any]] = []
+    ocr_candidates: List[Dict[str, Any]] = []  # 仅本地用于 OCR（需原始字节）
     for item in book.get_items_of_type(ebooklib.ITEM_IMAGE):
         try:
             blob = item.get_content()
             name = item.get_name() or ""
+            ext = name.rsplit(".", 1)[-1].lower() if "." in name else "bin"
             images.append({
                 "src": name,
-                "ext": name.rsplit(".", 1)[-1].lower() if "." in name else "bin",
+                "ext": ext,
                 "size_bytes": len(blob),
                 "data_base64": base64.b64encode(blob).decode("ascii"),
             })
+            # 响应载荷只放 base64 字符串（原始 bytes 无法 JSON 序列化），
+            # 因此 OCR 另用一份带字节的清单
+            ocr_candidates.append({"bytes": blob, "ext": ext, "caption": name})
         except Exception as e:
             logger.warning("EPUB 图片提取失败 [%s]: %s", source_name, e)
             continue
 
     markdown = "\n\n".join(parts)
+    if ocr is not None and ocr_candidates:
+        from src.document.ocr import ocr_embedded_images
+
+        blocks = ocr_embedded_images(ocr_candidates, ocr)
+        if blocks:
+            # epub 正文里图片以 ![](path) 引用，位置不便内联注入 → 统一附在文末
+            # （每段 caption 带内部路径，可与正文引用对照）
+            markdown = "\n\n".join(([markdown] if markdown else []) + blocks)
+
     return ConvertResult(markdown=markdown, title=title,
                          source_format="epub", images=images)
 
@@ -187,8 +207,8 @@ def _demote_heading_levels(markdown: str, base_offset: int = 1) -> str:
     return re.sub(r"^(#{1,6})(\s)", repl, markdown, flags=re.MULTILINE)
 
 
-def _pdf_to_markdown(data: bytes, source_name: str) -> ConvertResult:
-    """PDF → Markdown：按字号识别标题，保留段落"""
+def _pdf_to_markdown(data: bytes, source_name: str, ocr=None) -> ConvertResult:
+    """PDF → Markdown：按字号识别标题，保留段落；扫描页可选 OCR 回落"""
     import pymupdf
 
     doc = pymupdf.open(stream=data, filetype="pdf")
@@ -198,10 +218,14 @@ def _pdf_to_markdown(data: bytes, source_name: str) -> ConvertResult:
 
         # 收集全文 span 字号，判断正文基准字号与标题阈值
         all_spans: List[Tuple[float, str]] = []
-        pages_text: List[str] = []
+        pages_text: List[List[Tuple[float, str]]] = []
+        first_ocr_line: Optional[str] = None
+        ocr_budget = max(0, ocr.max_pages_per_doc) if ocr is not None else 0
+        ocr_done = 0
+
         for page in doc:
             d = page.get_text("dict")
-            page_parts: List[str] = []
+            page_parts: List[Tuple[float, str]] = []
             for block in d.get("blocks", []):
                 if block.get("type") != 0:
                     continue
@@ -212,6 +236,22 @@ def _pdf_to_markdown(data: bytes, source_name: str) -> ConvertResult:
                             size = float(span.get("size", 0))
                             all_spans.append((size, text))
                             page_parts.append((size, text))
+
+            # —— 扫描页回落：整页无文本层时渲染成图送 OCR ——
+            page_text = " ".join(t for _, t in page_parts).strip()
+            if ocr is not None and ocr.looks_scanned(page_text) and ocr_done < ocr_budget:
+                ocr_text = ocr.ocr_pdf_page(page, source=source_name)
+                ocr_done += 1
+                if ocr_text.strip():
+                    # 字号记 0：OCR 文本没有排版信息，既不参与正文字号统计，
+                    # 也不会被误判成标题（0 < body_size * 1.25 恒成立）
+                    page_parts = [(0.0, t) for t in (page_text, ocr_text.strip()) if t]
+                    if first_ocr_line is None:
+                        for ln in ocr_text.split("\n"):
+                            if ln.strip():
+                                first_ocr_line = ln.strip()
+                                break
+
             pages_text.append(page_parts)
 
         # 正文基准字号：全文出现最多的字号
@@ -245,12 +285,46 @@ def _pdf_to_markdown(data: bytes, source_name: str) -> ConvertResult:
             if s == max_size and len(t) <= 80:
                 title = t
                 break
+    if not title and first_ocr_line and len(first_ocr_line) <= 80:
+        # 全篇扫描件没有任何字号信息（all_spans 为空），退用首段 OCR 文字作标题
+        title = first_ocr_line
 
     return ConvertResult(markdown=markdown, title=title, source_format="pdf")
 
 
-def _docx_to_markdown(data: bytes, source_name: str) -> ConvertResult:
-    """DOCX → Markdown：按 Heading style 识别标题层级"""
+def _image_to_markdown(data: bytes, source_name: str, ocr=None) -> ConvertResult:
+    """图片 → Markdown：视觉模型 OCR（需 ocr.enabled=true）
+
+    未启用 OCR 时**显式报错**，而不是返回空 Markdown：图片转文本没有第二条
+    路径，静默返回空串会让调用方以为"转换成功了、只是内容为空"。
+    """
+    if ocr is None:
+        raise ValueError("图片转 Markdown 需要启用 OCR（config: ocr.enabled=true）")
+
+    ext = Path(source_name or "").suffix.lower().lstrip(".") or "png"
+    try:
+        text = ocr.ocr_image_bytes(data, ext=ext, source=source_name or "image")
+    except Exception as e:
+        # 与索引路径同构：OCR 异常不冒出（转换接口把它转成明确的 400 提示，
+        # 而不是让路由落到笼统的 422「文档格式或内容无效」）
+        raise ValueError(f"图片 OCR 失败: {type(e).__name__}: {e}")
+    if not text.strip():
+        raise ValueError("图片 OCR 未识别出文字（或图片过小/超大被护栏跳过）")
+
+    # 标题取文件名 stem；经 HTTP 路由进来时 source_name 是格式字符串（如 "png"），
+    # 那不是标题 → 留空，由调用方显式传 title
+    stem = Path(source_name or "").stem
+    title = stem if stem and stem.lower() not in _SUPPORTED_FORMATS else None
+    return ConvertResult(markdown=text.strip(), title=title, source_format="image")
+
+
+def _docx_to_markdown(data: bytes, source_name: str, ocr=None) -> ConvertResult:
+    """DOCX → Markdown：按 Heading style 识别标题层级
+
+    注：本路径不提取 docx 内嵌图片（索引路径的 DocxParser 才提取），
+    因此 ocr 参数在此不接受使用，仅为保持转换器签名统一。
+    """
+    del ocr  # 本路径无内嵌图片可 OCR
     import io
 
     from docx import Document
@@ -314,8 +388,8 @@ def _docx_to_markdown(data: bytes, source_name: str) -> ConvertResult:
     return ConvertResult(markdown=markdown, title=title, source_format="docx")
 
 
-def _pptx_to_markdown(data: bytes, source_name: str) -> ConvertResult:
-    """PPTX → Markdown：每页 ## 幻灯片 N + 文本框/表格"""
+def _pptx_to_markdown(data: bytes, source_name: str, ocr=None) -> ConvertResult:
+    """PPTX → Markdown：每页 ## 幻灯片 N + 文本框/表格（内嵌图片可选 OCR）"""
     import io
 
     from pptx import Presentation
@@ -326,6 +400,7 @@ def _pptx_to_markdown(data: bytes, source_name: str) -> ConvertResult:
     first_text: Optional[str] = None
 
     images: List[Dict[str, Any]] = []
+    ocr_done = 0
 
     for idx, slide in enumerate(prs.slides, 1):
         # blocks 而非 lines：一块表格是多行 Markdown，必须整体作为一个块，
@@ -364,6 +439,19 @@ def _pptx_to_markdown(data: bytes, source_name: str) -> ConvertResult:
                         "size_bytes": len(img.blob),
                         "data_base64": base64.b64encode(img.blob).decode("ascii"),
                     })
+                    # OCR 文字就插在本页文本框之后（比统一堆到文末更贴合阅读位置）；
+                    # 单文档上限与索引路径共用 ocr.max_images_per_doc
+                    if ocr is not None and ocr_done < ocr.max_images_per_doc:
+                        from src.document.ocr import ocr_block
+
+                        ocr_done += 1
+                        block = ocr_block(
+                            {"bytes": img.blob, "ext": getattr(img, "ext", "png"),
+                             "caption": f"幻灯片 {idx}"},
+                            ocr,
+                        )
+                        if block:
+                            blocks.append(block)
                 except Exception:
                     continue
         if blocks:
@@ -380,7 +468,7 @@ def _pptx_to_markdown(data: bytes, source_name: str) -> ConvertResult:
 # ================================================================
 
 # 格式标识（小写，无点）→ 处理函数
-# 二进制格式（pdf/docx/pptx/epub）函数签名为 (bytes, source_name)
+# 二进制格式（pdf/docx/pptx/epub/图片）函数签名为 (bytes, source_name, ocr_client)
 # 文本格式（md/txt/html）函数签名为 (str, title)
 
 _TEXT_CONVERTERS: Dict[str, Callable[[str, Optional[str]], ConvertResult]] = {
@@ -392,11 +480,20 @@ _TEXT_CONVERTERS: Dict[str, Callable[[str, Optional[str]], ConvertResult]] = {
     "htm": _html_to_markdown,
 }
 
-_BINARY_CONVERTERS: Dict[str, Callable[[bytes, str], ConvertResult]] = {
+_BINARY_CONVERTERS: Dict[str, Callable[..., ConvertResult]] = {
     "pdf": _pdf_to_markdown,
     "docx": _docx_to_markdown,
     "pptx": _pptx_to_markdown,
     "epub": _epub_to_markdown,
+    # 图片格式：需 ocr.enabled=true，否则显式报错（见 _image_to_markdown）
+    "png": _image_to_markdown,
+    "jpg": _image_to_markdown,
+    "jpeg": _image_to_markdown,
+    "webp": _image_to_markdown,
+    "gif": _image_to_markdown,
+    "bmp": _image_to_markdown,
+    "tiff": _image_to_markdown,
+    "tif": _image_to_markdown,
 }
 
 _SUPPORTED_FORMATS = set(_TEXT_CONVERTERS) | set(_BINARY_CONVERTERS)
@@ -407,7 +504,15 @@ def _normalize_format(fmt: str) -> str:
     return (fmt or "").strip().lstrip(".").lower()
 
 
-def convert_to_markdown(data: bytes, fmt: str, source_name: str = "") -> ConvertResult:
+def _resolve_ocr_client():
+    """按当前配置解析 OCR 客户端（配置未加载 / 未启用 → None）"""
+    from src.document import ocr
+
+    return ocr.get_ocr_client()
+
+
+def convert_to_markdown(data: bytes, fmt: str, source_name: str = "",
+                        ocr_client=None) -> ConvertResult:
     """
     统一入口：任意格式字节 → Markdown
 
@@ -415,12 +520,14 @@ def convert_to_markdown(data: bytes, fmt: str, source_name: str = "") -> Convert
         data: 文件字节 / 文本编码后的字节
         fmt: 格式标识（支持带点：.pdf / pdf 均可）
         source_name: 来源文件名（用于错误提示与部分标题兜底）
+        ocr_client: 显式注入的 OCR 客户端（测试用桩）；
+            None = 按当前配置解析（ocr.enabled=false 时即无 OCR）
 
     Returns:
         ConvertResult
 
     Raises:
-        ValueError: 不支持的格式
+        ValueError: 不支持的格式 / 图片格式未启用 OCR
     """
     fmt = _normalize_format(fmt)
     if fmt not in _SUPPORTED_FORMATS:
@@ -431,7 +538,8 @@ def convert_to_markdown(data: bytes, fmt: str, source_name: str = "") -> Convert
         text = decode_bytes(data, source_name)
         result = _TEXT_CONVERTERS[fmt](text, None)
     else:
-        result = _BINARY_CONVERTERS[fmt](data, source_name)
+        ocr = ocr_client if ocr_client is not None else _resolve_ocr_client()
+        result = _BINARY_CONVERTERS[fmt](data, source_name, ocr)
 
     # 统一：开头加 # 标题（若转换结果有 title）
     if result.title:

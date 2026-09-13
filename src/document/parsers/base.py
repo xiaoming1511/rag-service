@@ -26,6 +26,27 @@ class Parser(ABC):
     # 支持的扩展名列表（含点，小写），如 [".md", ".markdown"]
     extensions: List[str] = []
 
+    def __init__(self, ocr_client=None):
+        """
+        Args:
+            ocr_client: 显式注入的 OCR 客户端（测试用桩）；
+                None（默认）= 解析时按当前配置解析——配置未启用即无 OCR，
+                因此「不传」与「OCR 关闭」在全链路上等价。
+        """
+        self._ocr_client = ocr_client
+
+    def _resolve_ocr(self):
+        """取本次解析应使用的 OCR 客户端；未启用 → None
+
+        每次解析都重新解析（而不是在 __init__ 里缓存）：解析器实例是
+        模块级单例、会被多轮索引复用，配置热改后必须能立即生效。
+        """
+        if self._ocr_client is not None:
+            return self._ocr_client
+        from src.document import ocr
+
+        return ocr.get_ocr_client()
+
     @abstractmethod
     def parse_bytes(self, data: bytes, source_name: str) -> ParsedContent:
         """

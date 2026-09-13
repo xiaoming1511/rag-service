@@ -2,7 +2,7 @@
 文档 → Markdown 转换路由（统一入口）
 
 供 Obsidian 插件（及任何客户端）调用：把任意支持的文档格式（html/pdf/docx/
-pptx/epub/txt/md）转换成排版正确、标题层级保留的 Markdown。转换逻辑委托
+pptx/epub/txt/md/图片）转换成排版正确、标题层级保留的 Markdown。转换逻辑委托
 `src/document/to_markdown`（统一分发到各格式转换器）。
 
 端点：
@@ -13,6 +13,12 @@ pptx/epub/txt/md）转换成排版正确、标题层级保留的 Markdown。转�
         时去 data 保元数据），供调用方另存附件或改写引用
 
     POST /v1/convert/html2md   （向后兼容：等价于 format=html）
+
+OCR（可选，默认关闭；配置 ocr.enabled=true 后生效）：
+    - 图片格式（png/jpg/webp/gif/bmp/tiff）需要 OCR 才能转出文字，
+      未启用时返回 400 并说明原因（而不是给一份空 Markdown）；
+    - 扫描版 PDF 的页面会自动回落 OCR（文本层字符数低于 ocr.min_text_chars）；
+    - pptx/epub 的内嵌图片逐张识别，文字并入 Markdown。
 
 口径：不落盘到 vault —— 写 .md 由插件负责，避免服务端越权写库 +
       与 Obsidian 文件监听冲突。
@@ -121,8 +127,10 @@ def convert_document_to_markdown(req: ToMdRequest):
     统一转换入口：任意支持格式 → Markdown
 
     - format: html / htm / pdf / docx / pptx / epub / txt / md / markdown
-    - 二进制格式（pdf/docx/pptx/epub）用 content_is_base64=true + base64(content)
+      / png / jpg / jpeg / webp / gif / bmp / tiff / tif
+    - 二进制格式（pdf/docx/pptx/epub/图片）用 content_is_base64=true + base64(content)
     - 文本格式（html/txt/md）可直接传原文
+    - 图片格式需要 ocr.enabled=true，否则返回 400
 
     声明为 def（非 async def）：pdf/docx/pptx/epub 解析是同步 CPU 密集工作，
     在 async def 里会冻结事件循环；def 端点由 Starlette 放入线程池执行。

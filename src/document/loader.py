@@ -55,6 +55,7 @@ class DocumentLoader:
             extensions: Optional[List[str]] = None,
             parsers: Optional[List[Parser]] = None,
             attachment_dir: Optional[str] = None,
+            ocr_client=None,
     ):
         """
         初始化加载器
@@ -62,16 +63,31 @@ class DocumentLoader:
         Args:
             source_dirs: 源目录列表
             extensions: 支持的扩展名列表；None 表示使用全部可用解析器的扩展名
-            parsers: 自定义解析器列表；None 使用默认解析器（md/txt/pdf/docx/html/epub/pptx）
+            parsers: 自定义解析器列表；None 使用默认解析器
+                （md/txt/pdf/docx/html/epub/pptx/image）
             attachment_dir: 提取图片的附件目录（多模态）；默认 data/attachments
+            ocr_client: 显式注入的 OCR 客户端（测试用桩）；None = 按当前配置解析。
+                OCR 未启用时内嵌图片不做识别，行为与接入前一致。
         """
         self.source_dirs = [Path(d).expanduser().resolve() for d in source_dirs]
+
+        # OCR 客户端（None = 每次加载时按配置解析；见 _resolve_ocr）
+        self._ocr_client = ocr_client
 
         # 附件目录（多模态：从 PDF/DOCX/PPTX 提取的内嵌图片落盘于此）
         self.attachment_dir = Path(attachment_dir or "./data/attachments").expanduser().resolve()
 
         # 构建扩展名 → 解析器 注册表
-        parser_list = parsers if parsers is not None else DEFAULT_PARSERS
+        # 注入 OCR 客户端时必须另建解析器：DEFAULT_PARSERS 是模块级单例，
+        # 不持有客户端（免得一次注入污染全局）。未注入时仍用单例，行为不变。
+        if parsers is not None:
+            parser_list = parsers
+        elif ocr_client is not None:
+            from src.document.parsers import build_default_parsers
+
+            parser_list = build_default_parsers(ocr_client)
+        else:
+            parser_list = DEFAULT_PARSERS
         self._parsers: Dict[str, Parser] = {}
         for parser in parser_list:
             for ext in parser.extensions:
@@ -277,7 +293,13 @@ class DocumentLoader:
 
         # 多模态：保存提取的内嵌图片到附件目录，并记录到元数据
         if parsed.images:
+            ocr_blocks = self._ocr_embedded_images(parsed.images)
             metadata['images'] = self._save_images(parsed.images, doc_id, file_path.name)
+            if ocr_blocks:
+                # 内嵌图片的 OCR 文字并入正文，否则图片里的内容永远检索不到
+                # （图片本体只落在附件目录，不参与分块）
+                content = f"{content}\n\n" + "\n\n".join(ocr_blocks)
+                metadata['ocr_images'] = len(ocr_blocks)
 
         return Document(
             id=doc_id,
@@ -286,6 +308,23 @@ class DocumentLoader:
             content=content,
             metadata=metadata,
         )
+
+    def _resolve_ocr(self):
+        """取本次加载应使用的 OCR 客户端；未启用 → None（每次现读配置）"""
+        if self._ocr_client is not None:
+            return self._ocr_client
+        from src.document import ocr
+
+        return ocr.get_ocr_client()
+
+    def _ocr_embedded_images(self, images: List[Dict[str, Any]]) -> List[str]:
+        """对解析器提取的内嵌图片做 OCR，返回可并入正文的文本块（未启用 → 空）"""
+        client = self._resolve_ocr()
+        if client is None:
+            return []
+        from src.document import ocr
+
+        return ocr.ocr_embedded_images(images, client)
 
     def _save_images(self, images: List[Dict[str, Any]], doc_id: str, file_name: str) -> List[Dict[str, Any]]:
         """

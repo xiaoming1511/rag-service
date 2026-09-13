@@ -84,6 +84,37 @@ class SynthesesConfig(BaseModel):
     dir: str = ""  # 沉淀目录；空 = 自动（source_dirs[0]/syntheses，会被加载器索引）
 
 
+class OCRConfig(BaseModel):
+    """
+    OCR 配置（用视觉模型对图片 / 扫描件做文字识别）
+
+    默认**关闭**：实测单页约 8s（冷加载 4.9s + 出字 2.4s），开启后首次索引
+    明显变慢，且会与问答争抢同一台 oMLX 服务。关闭时全链路行为与未接入前
+    完全一致（扫描件照旧被跳过、图片照旧不作为文档加载）。
+
+    开启方式（两步，缺一不可）：
+      1) `ocr.enabled: true`
+      2) 把要纳入的图片扩展名加进 `documents.supported_extensions`
+         （如 .png / .jpg），否则加载器根本不会扫描到图片文件。
+    """
+    enabled: bool = False
+    model: str = "OvisOCR2"
+    base_url: str = ""          # 空 = 复用 omlx.base_url
+    api_key: str = ""           # 空 = 复用 omlx.api_key
+    timeout: float = 120.0      # 单图/单页请求超时（OCR 比聊天慢，默认给足）
+    prompt: str = "OCR"         # 送模型的指令；OvisOCR2 实测对 "OCR" 直接返回 Markdown
+
+    # —— 扫描页判定 ——
+    min_text_chars: int = 16    # PDF 页面文本层字符数低于此值 → 视为扫描页，整页 OCR
+
+    # —— 成本护栏（防止一次索引把模型服务打满）——
+    render_dpi: int = 150            # 扫描页渲染 DPI（过高会显著放大请求体）
+    max_pages_per_doc: int = 30      # 单文档最多 OCR 页数，超出跳过并记日志
+    max_images_per_doc: int = 20     # 单文档最多 OCR 内嵌图片数
+    min_image_side: int = 64         # 最小边长（像素），用于跳过图标/装饰线
+    max_image_pixels: int = 40_000_000  # 单图最大像素（约 40MP），防解压炸弹
+
+
 class RoutingConfig(BaseModel):
     """
     模型路由配置（模型路由：让不同任务使用不同模型）
@@ -139,6 +170,7 @@ class AppConfig(BaseModel):
     documents: DocumentsConfig = Field(default_factory=DocumentsConfig)
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
     syntheses: SynthesesConfig = Field(default_factory=SynthesesConfig)
+    ocr: OCRConfig = Field(default_factory=OCRConfig)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)

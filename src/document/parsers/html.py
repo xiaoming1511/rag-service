@@ -24,11 +24,13 @@ class HTMLParser(Parser):
 
     extensions: List[str] = [".html", ".htm"]
 
-    def __init__(self, keep_images: bool = True):
+    def __init__(self, keep_images: bool = True, ocr_client=None):
         """
         Args:
             keep_images: 是否保留图片为 Markdown 图片语法（默认保留）
+            ocr_client: 显式注入的 OCR 客户端（本解析器不消费，仅保持构造签名统一）
         """
+        super().__init__(ocr_client=ocr_client)
         self.keep_images = keep_images
 
     def parse_bytes(self, data: bytes, source_name: str) -> ParsedContent:
