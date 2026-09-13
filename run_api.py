@@ -88,6 +88,9 @@ def main():
         bm25_index=bm25_index,
         hybrid=config.retrieval.hybrid,
         hybrid_candidates=config.retrieval.hybrid_candidates,
+        recall_candidates=config.retrieval.recall_candidates,
+        rerank_candidates=config.retrieval.rerank_candidates,
+        synthesis_weight=config.retrieval.synthesis_weight,
         rrf_k=config.retrieval.rrf_k,
         parent_expansion=config.retrieval.parent_expansion,
         parent_max_tokens=config.retrieval.parent_max_tokens,
@@ -108,6 +111,7 @@ def main():
         rewrite_query=config.generation.rewrite_query,
         model_router=model_router,
     )
+    generator.answer_style = config.generation.answer_style
 
     indexer = Indexer(
         loader=loader,
@@ -139,10 +143,10 @@ def main():
         strict_sources=config.retrieval.strict_sources,
         save_syntheses=config.syntheses.enabled,
         syntheses_dir=syntheses_dir,
+        indexer=indexer,
+        vector_store=vector_store,
+        model_router=model_router,  # 供 /v1/config 热更新路由
     )
-    pipeline.indexer = indexer
-    pipeline.vector_store = vector_store
-    pipeline.model_router = model_router  # 供 /v1/config 热更新路由
 
     # 增量索引：共享同一同步器（/v1/index/refresh 与自动监听复用清单）
     from src.pipeline.index_sync import IndexSync
@@ -157,12 +161,23 @@ def main():
     def run_index_job(job):
         """队列任务执行函数（pipeline 同步接口的非阻塞包装；支持文档/批次粒度取消）"""
         cancelled = partial(ingest_queue.is_cancelled, job.id)
+
+        def progress_cb(stage, cur, tot, note=""):
+            """数字化进度：写入结构化 progress_data（/v1/status 与 /v1/index/jobs 可查）"""
+            ingest_queue.update_progress(job, stage, cur, tot, note)
+
         try:
             if job.kind == "full":
-                return pipeline.index(rebuild=job.params.get("rebuild", False), cancelled=cancelled)
+                return pipeline.index(
+                    rebuild=job.params.get("rebuild", False),
+                    cancelled=cancelled,
+                    progress_cb=progress_cb,
+                )
             if job.kind == "incremental":
                 return pipeline.index_incremental(
-                    rebuild=job.params.get("rebuild", False), cancelled=cancelled
+                    rebuild=job.params.get("rebuild", False),
+                    cancelled=cancelled,
+                    progress_cb=progress_cb,
                 )
             if job.kind == "url":
                 return pipeline.index_url(url=job.params["url"], timeout=job.params.get("timeout", 30.0))
@@ -178,6 +193,16 @@ def main():
     from src.session.store import ConversationStore
 
     pipeline.conversation_store = ConversationStore(dir_path="./data/conversations")
+
+    # 每日自动备份（4）：默认开启；RAG_BACKUP=0 关闭，RAG_BACKUP_KEEP/INTERVAL 可调
+    if os.getenv("RAG_BACKUP", "1") != "0":
+        from src.pipeline.backup import start_backup_loop
+        start_backup_loop(
+            pipeline.conversation_store,
+            backups_dir="./data/backups",
+            interval=int(os.getenv("RAG_BACKUP_INTERVAL", "86400")),
+            keep=int(os.getenv("RAG_BACKUP_KEEP", "7")),
+        )
 
     def on_vault_change():
         """文件变化回调：增量同步（xu/wiki 由外部 LLM Wiki 管理，本系统不处理）"""
@@ -198,6 +223,25 @@ def main():
 
     # ========== 创建应用 ==========
     app = create_app(pipeline)
+
+    # 可选 OpenTelemetry：设置 OTEL_EXPORTER_OTLP_ENDPOINT 即启用 trace 导出
+    from src.otel import maybe_init_otel
+    maybe_init_otel(app)
+
+    # 启动预热（B）：默认开启（RAG_WARMUP=0 关闭）——后台预嵌入常用问题，降首问冷启动
+    if os.getenv("RAG_WARMUP", "1") != "0":
+        import threading
+
+        def _warmup():
+            from src.logging_setup import get_logger as _gl
+            try:
+                for q in ("总结我的 RAG 知识库技术栈", "如何提升检索准确率？", "文档分块策略是怎样的？"):
+                    embedder.embed_single(q)
+                _gl(__name__).info("启动预热完成（embed 缓存已预热）")
+            except Exception as e:  # noqa: BLE001
+                _gl(__name__).warning("启动预热失败（忽略）: %s", e)
+
+        threading.Thread(target=_warmup, daemon=True).start()
 
     # 根路径 → 跳转到 API 文档（Web 聊天页已移除，查询统一走 Obsidian 插件）
     @app.get("/")
@@ -224,6 +268,7 @@ def main():
             host="127.0.0.1",
             port=8080,
             log_level="info",
+            access_log=False,  # 日志去重（E）：uvicorn 不再打印重复 access，统一走业务 JSON 日志
         )
     finally:
         watcher.stop()

@@ -1,7 +1,7 @@
 # ============================================================
 # RAG Service 便捷命令（无需上传 GitHub 也可本地用）
 # ============================================================
-.PHONY: install test eval eval-gen build-plugin install-plugin export-demo clean
+.PHONY: install test eval eval-gen build-plugin install-plugin export-demo clean html2md
 
 # 安装 Python 依赖（含测试用）
 install:
@@ -33,3 +33,10 @@ all: test build-plugin install-plugin
 # 清理运行产物（保留 .venv 与向量库）
 clean:
 	rm -rf data/exports data/tmp data/conversations .pytest_cache
+
+# HTML → Markdown 转换（用法: make html2md IN=docs/x.html [OUT=out/x.md]）
+# ASCII 架构图/代码块会套围栏保留，避免导入 Obsidian 后排版错乱
+html2md:
+	@test -n "$(IN)" || { echo "用法: make html2md IN=<input.html> [OUT=<output.md>]"; exit 1; }
+	cd $$(dirname $(realpath $(firstword $(MAKEFILE_LIST)))) && \
+	  .venv/bin/python scripts/html_to_md.py "$(IN)" $(if $(OUT),-o "$(OUT)",) --force
