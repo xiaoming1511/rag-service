@@ -5,7 +5,10 @@
 
 import hashlib
 import json
+import os
+import tempfile
 from collections import OrderedDict
+from threading import Lock
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
@@ -41,6 +44,9 @@ class Embedder:
         # 内存 LRU 缓存（命中免磁盘 I/O）
         self.mem_cache_capacity = max(0, mem_cache_capacity)
         self._mem_cache: "OrderedDict[str, List[float]]" = OrderedDict()
+        # OrderedDict 非线程安全：embed 经线程池并发、embed_async 经事件循环，
+        # 二者可能同时访问；统一用 threading.Lock 串行化内存缓存操作
+        self._mem_lock = Lock()
 
         if cache_enabled:
             self.cache_dir = Path(cache_dir)
@@ -182,20 +188,24 @@ class Embedder:
 
         # 1. 内存缓存（决策 D7：免磁盘 I/O）
         if self.mem_cache_capacity > 0:
-            mem = self._mem_cache.get(cache_key)
-            if mem is not None:
-                self._mem_cache.move_to_end(cache_key)
-                return list(mem)  # 返回副本，避免调用方改动缓存
+            with self._mem_lock:
+                mem = self._mem_cache.get(cache_key)
+                if mem is not None:
+                    self._mem_cache.move_to_end(cache_key)
+                    return list(mem)  # 返回副本，避免调用方改动缓存
 
         # 2. 磁盘缓存（按模型分目录）
         cache_file = self._model_cache_dir() / f"{self._get_cache_key(text)}.json"
         if cache_file.exists():
             try:
-                with open(cache_file, 'r') as f:
+                # 显式 utf-8：与项目其余文件读写一致，且避免非 UTF-8
+                # locale（容器/CI 的 C locale）下 json.load 抛异常被吞
+                # → 缓存静默全 miss、每次都打嵌入 API
+                with open(cache_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 embedding = data['embedding']
                 self._mem_put(cache_key, embedding)
-                return embedding
+                return list(embedding)  # 返回副本，与内存路径语义一致
             except Exception:
                 return None
         return None
@@ -204,10 +214,11 @@ class Embedder:
         """写入内存 LRU 缓存（超出容量淘汰最久未用的键）"""
         if self.mem_cache_capacity <= 0:
             return
-        self._mem_cache[key] = embedding
-        self._mem_cache.move_to_end(key)
-        while len(self._mem_cache) > self.mem_cache_capacity:
-            self._mem_cache.popitem(last=False)
+        with self._mem_lock:
+            self._mem_cache[key] = embedding
+            self._mem_cache.move_to_end(key)
+            while len(self._mem_cache) > self.mem_cache_capacity:
+                self._mem_cache.popitem(last=False)
 
     def _save_cache(self, text: str, embedding: List[float]):
         """保存向量：写入内存与磁盘缓存（按模型分目录；写入失败不影响主流程）"""
@@ -218,12 +229,22 @@ class Embedder:
             cache_dir = self._model_cache_dir()
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_file = cache_dir / f"{self._get_cache_key(text)}.json"
-            with open(cache_file, 'w') as f:
-                json.dump({
-                    'text': text,
-                    'model': self.model,
-                    'embedding': embedding,
-                }, f)
+            # 原子写：先写临时文件再 replace，避免并发/中断读到半写 JSON
+            fd, tmp_path = tempfile.mkstemp(dir=str(cache_dir), suffix=".tmp")
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        'text': text,
+                        'model': self.model,
+                        'embedding': embedding,
+                    }, f, ensure_ascii=False)
+                os.replace(tmp_path, cache_file)
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
         except Exception:
             pass  # 缓存写入失败不影响主流程
 

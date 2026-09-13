@@ -42,12 +42,40 @@ class RetrievalConfig(BaseModel):
     rrf_k: int = 60                   # RRF 融合常数
     parent_expansion: bool = True     # 父子块召回（B4，方案 A）：命中小块实时聚合父块入上下文
     parent_max_tokens: int = 1600     # 单个父块 token 上限（超出以命中块为中心截窗）
+    # —— 检索保真修复（recall 面放大的选项）——
+    recall_candidates: int = 30       # 召回候选窗（rerank 前每路抓取数）。
+                                      # 旧设计在 hybrid=off 时召回数=top_k(5)，导致
+                                      # 高分历史沉淀霸榜、真实块排到候选窗外被漏掉。
+                                      # 提高后让 rerank 有机会捞回真实高分块。
+    rerank_candidates: int = 8        # rerank 候选池上限：只精排召回窗内前 N 个
+                                      # （按降权后相似度取 TopN）。旧实现重排全部候选
+                                      # （最多 recall_candidates 个），本地 rerank 一次
+                                      # 30 对耗时可达 ~6s；收窄到 8 对即可在保住真实
+                                      # 高分块的同时大幅降延迟。应 >= rerank_top_k。
+    synthesis_weight: float = 0.85    # 问答沉淀(syntheses 目录文件)块的相关性权重，
+                                      # 0~1。用于打压"历史问答以问代答"对 top 榜的占领。
+                                      # 1.0 = 不过滤；建议 0.6~0.9；0 = 完全排除。
 
 
 class AuthConfig(BaseModel):
     """API 认证配置（预留：公网开放时启用，Obsidian 插件已默认发送 Bearer 头）"""
     enabled: bool = False  # False = 不校验（当前本地行为不变）
     api_key: str = ""      # 启用后校验请求头 Authorization: Bearer <api_key>
+
+
+class RateLimitConfig(BaseModel):
+    """简易限流（每 IP 滑动窗口；默认关闭，仅外网/共享环境启用）"""
+    enabled: bool = False        # False = 不限流（本地默认为关）
+    max_per_minute: int = 60     # 每 IP 每分钟最大请求数（窗口 1 分钟，内存态）
+
+
+class SecurityConfig(BaseModel):
+    """抓取安全配置（SSRF 防护）"""
+    # False（默认）= 拒绝抓取内网/回环/云元数据地址；
+    # True = 放行（离线测试本地 HTTP 服务、索引自建内网文档站时使用）。
+    # 也可用环境变量 RAG_ALLOW_PRIVATE_URLS=1 临时覆盖（优先级更高）。
+    # 该项不在 /v1/config 的可改白名单内，防止远程热改为放行。
+    allow_private_urls: bool = False
 
 
 class SynthesesConfig(BaseModel):
@@ -78,6 +106,7 @@ class GenerationConfig(BaseModel):
     max_history_rounds: int = 10        # 多轮对话保留的最大轮数
     history_token_budget: int = 2000    # 历史 token 预算，超出从旧到新裁剪
     rewrite_query: bool = False         # 是否启用追问改写（默认关闭）
+    answer_style: str = "balanced"      # brief | balanced | detailed（提示词层控制回答长短）
 
 
 class VectorStoreConfig(BaseModel):
@@ -112,6 +141,8 @@ class AppConfig(BaseModel):
     syntheses: SynthesesConfig = Field(default_factory=SynthesesConfig)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
 
 
 class ConfigManager:
@@ -142,7 +173,14 @@ class ConfigManager:
         with open(config_file, "r", encoding="utf-8") as f:
             raw_config = yaml.safe_load(f)
 
+        # 空 YAML 文件 → 空配置字典（交由 AppConfig 校验字段缺失）
+        if raw_config is None:
+            raw_config = {}
+        if not isinstance(raw_config, dict):
+            raise ValueError(f"配置文件顶层必须是映射，得到: {type(raw_config).__name__}")
+
         # 处理环境变量覆盖
+        raw_config.setdefault("omlx", {})
         if os.getenv("OMLX_BASE_URL"):
             raw_config["omlx"]["base_url"] = os.getenv("OMLX_BASE_URL")
         if os.getenv("OMLX_CHAT_MODEL"):
@@ -174,8 +212,20 @@ class ConfigManager:
         if target is None or self._config is None:
             raise RuntimeError("尚未加载配置，无法保存")
         target.parent.mkdir(parents=True, exist_ok=True)
-        with open(target, "w", encoding="utf-8") as f:
-            yaml.safe_dump(self._config.model_dump(), f, allow_unicode=True, sort_keys=False)
+
+        # 原子写：先写临时文件再 os.replace，避免写入中断截断配置文件
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.safe_dump(self._config.model_dump(), f, allow_unicode=True, sort_keys=False)
+            os.replace(tmp_path, target)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         return target
 
     @property

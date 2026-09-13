@@ -56,6 +56,13 @@ class SyncEventHandler(FileSystemEventHandler):
         except Exception as e:  # 监听回调不应让观察者线程崩溃
             logger.warning("增量同步回调异常: %s", e)
 
+    def cancel(self):
+        """取消 pending 的去抖计时器（stop 时调用，避免停止后仍触发一次同步）"""
+        with self._lock:
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+
 
 class IndexWatcher:
     """增量索引文件监听器（守护线程运行）"""
@@ -78,6 +85,7 @@ class IndexWatcher:
         self.on_change = on_change
         self.debounce = debounce
         self._observer: Optional[Observer] = None
+        self._handler: Optional[SyncEventHandler] = None
 
     def start(self):
         """启动监听（守护线程，随进程退出）"""
@@ -86,6 +94,7 @@ class IndexWatcher:
 
         observer = Observer()
         handler = SyncEventHandler(self.on_change, self.debounce)
+        self._handler = handler
 
         for d in self.source_dirs:
             path = Path(d).expanduser().resolve()
@@ -101,8 +110,11 @@ class IndexWatcher:
 
     def stop(self):
         """停止监听"""
+        if self._handler is not None:
+            self._handler.cancel()  # 取消 pending 去抖，避免停止后仍同步一次
         if self._observer is not None:
             self._observer.stop()
             self._observer.join(timeout=5)
             self._observer = None
+            self._handler = None
             logger.info("⏹️ 增量索引监听已停止")

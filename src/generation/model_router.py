@@ -35,10 +35,18 @@ class ModelRouter:
             self.update(tasks)
 
     def update(self, tasks: Dict[str, str]):
-        """批量更新任务映射（服务运行时可热更新）"""
-        for key, value in (tasks or {}).items():
+        """批量更新任务映射（服务运行时可热更新）
+
+        先构造完整新字典再一次原子替换，避免并发 resolve/tasks 读到
+        「部分任务已切换、部分仍旧值」的中间态。
+        """
+        if not tasks:
+            return
+        new_tasks = dict(self._tasks)
+        for key, value in tasks.items():
             if key in self.SUPPORTED_TASKS:
-                self._tasks[key] = (value or "").strip()
+                new_tasks[key] = (value or "").strip()
+        self._tasks = new_tasks  # 单次引用赋值，原子替换
 
     def resolve(self, task: str) -> str:
         """

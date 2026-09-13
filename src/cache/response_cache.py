@@ -13,6 +13,7 @@
 import hashlib
 import time
 from collections import OrderedDict
+from threading import Lock
 from typing import Any, Dict, Optional, Tuple
 
 
@@ -32,12 +33,16 @@ class ResponseCache:
         self.ttl = ttl
         self.capacity = max(1, capacity)
         self._cache: "OrderedDict[str, Tuple[float, Any]]" = OrderedDict()
+        # OrderedDict 非线程安全：move_to_end/popitem 并发会破坏内部链表。
+        # RAGPipeline.query 经 asyncio.to_thread 在多线程池并发调用，需加锁。
+        self._lock = Lock()
 
     def enable(self, enabled: bool = True):
         """动态开关缓存"""
-        self.enabled = enabled
-        if not enabled:
-            self._cache.clear()
+        with self._lock:
+            self.enabled = enabled
+            if not enabled:
+                self._cache.clear()
 
     # ================================================================
     # 键与存取
@@ -54,31 +59,33 @@ class ResponseCache:
         if not self.enabled:
             return None
 
-        item = self._cache.get(key)
-        if item is None:
-            return None
+        with self._lock:
+            item = self._cache.get(key)
+            if item is None:
+                return None
 
-        created_at, value = item
-        if self.ttl > 0 and time.time() - created_at > self.ttl:
-            # 已过期：删除并视为未命中
-            self._cache.pop(key, None)
-            return None
+            created_at, value = item
+            if self.ttl > 0 and time.time() - created_at > self.ttl:
+                # 已过期：删除并视为未命中
+                self._cache.pop(key, None)
+                return None
 
-        # LRU：把命中的键移到末尾
-        self._cache.move_to_end(key)
-        return value
+            # LRU：把命中的键移到末尾
+            self._cache.move_to_end(key)
+            return value
 
     def put(self, key: str, value: Any):
         """写入缓存（LRU 淘汰）"""
         if not self.enabled:
             return
 
-        self._cache[key] = (time.time(), value)
-        self._cache.move_to_end(key)
+        with self._lock:
+            self._cache[key] = (time.time(), value)
+            self._cache.move_to_end(key)
 
-        # 超出容量：淘汰最久未用的键（队首）
-        while len(self._cache) > self.capacity:
-            self._cache.popitem(last=False)
+            # 超出容量：淘汰最久未用的键（队首）
+            while len(self._cache) > self.capacity:
+                self._cache.popitem(last=False)
 
     # ================================================================
     # 状态
@@ -86,13 +93,15 @@ class ResponseCache:
 
     def clear(self):
         """清空缓存"""
-        self._cache.clear()
+        with self._lock:
+            self._cache.clear()
 
     def stats(self) -> Dict[str, Any]:
         """缓存统计"""
-        return {
-            "enabled": self.enabled,
-            "capacity": self.capacity,
-            "size": len(self._cache),
-            "ttl": self.ttl,
-        }
+        with self._lock:
+            return {
+                "enabled": self.enabled,
+                "capacity": self.capacity,
+                "size": len(self._cache),
+                "ttl": self.ttl,
+            }

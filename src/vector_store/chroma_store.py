@@ -103,12 +103,18 @@ class ChromaStore(BaseVectorStore):
         search_results = []
 
         if results['ids'] and results['ids'][0]:
+            documents = (results.get('documents') or [None])[0] or []
+            metadatas = (results.get('metadatas') or [None])[0] or []
+            distances = (results.get('distances') or [None])[0] or []
             for i, doc_id in enumerate(results['ids'][0]):
-                score = 1.0 - results['distances'][0][i] if results.get('distances') else 1.0
+                # cosine 距离 → 相似度；对超出 [0,2] 的异常距离做 clamp
+                dist = distances[i] if i < len(distances) else 1.0
+                score = 1.0 - dist
+                score = max(0.0, min(1.0, score))
                 search_results.append(SearchResult(
                     id=doc_id,
-                    content=results['documents'][0][i] if results.get('documents') else "",
-                    metadata=results['metadatas'][0][i] if results.get('metadatas') else {},
+                    content=documents[i] if i < len(documents) else "",
+                    metadata=metadatas[i] if i < len(metadatas) else {},
                     score=score,
                 ))
 
@@ -150,11 +156,13 @@ class ChromaStore(BaseVectorStore):
 
         documents = []
         if results['ids']:
+            docs = results.get('documents') or []
+            metas = results.get('metadatas') or []
             for i, doc_id in enumerate(results['ids']):
                 doc = {
                     'id': doc_id,
-                    'document': results['documents'][i] if results.get('documents') else "",
-                    'metadata': results['metadatas'][i] if results.get('metadatas') else {},
+                    'document': docs[i] if i < len(docs) else "",
+                    'metadata': metas[i] if i < len(metas) else {},
                 }
                 documents.append(doc)
 
